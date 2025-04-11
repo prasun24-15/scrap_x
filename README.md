@@ -1,4 +1,4 @@
-# EcoScrap - Scrap Material Marketplace
+# Scrap X - Scrap Material Marketplace
 
 A platform connecting scrap sellers with buyers to promote recycling and sustainable waste management. Built for the Spectrum Hackathon.
 
