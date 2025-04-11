@@ -17,6 +17,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import {
   Card,
@@ -138,6 +139,14 @@ const CreateListing = () => {
       form.setValue("materialTypeId", mockMaterialType);
       form.setValue("title", "Recycled Material");
       form.setValue("description", "Automatically analyzed waste material");
+      
+      // Set the default price based on the selected material type
+      if (mockMaterialType) {
+        const selectedMaterial = materialTypes.find(type => type.id === mockMaterialType);
+        if (selectedMaterial && selectedMaterial.base_price) {
+          form.setValue("listedPrice", selectedMaterial.base_price.toString());
+        }
+      }
       
       toast({
         title: "Analysis Complete",
@@ -334,7 +343,14 @@ const CreateListing = () => {
                           <FormItem>
                             <FormLabel>Material Type</FormLabel>
                             <Select 
-                              onValueChange={field.onChange} 
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                // Set default price when material type changes
+                                const selectedMaterial = materialTypes.find(type => type.id === value);
+                                if (selectedMaterial && selectedMaterial.base_price) {
+                                  form.setValue("listedPrice", selectedMaterial.base_price.toString());
+                                }
+                              }} 
                               defaultValue={field.value}
                               disabled={loadingMaterials}
                             >
@@ -406,7 +422,14 @@ const CreateListing = () => {
                             <FormItem>
                               <FormLabel>Detected Material Type</FormLabel>
                               <Select 
-                                onValueChange={field.onChange} 
+                                onValueChange={(value) => {
+                                  field.onChange(value);
+                                  // Set default price when material type changes
+                                  const selectedMaterial = materialTypes.find(type => type.id === value);
+                                  if (selectedMaterial && selectedMaterial.base_price) {
+                                    form.setValue("listedPrice", selectedMaterial.base_price.toString());
+                                  }
+                                }}
                                 defaultValue={field.value}
                                 disabled={loadingMaterials}
                               >
@@ -482,16 +505,20 @@ const CreateListing = () => {
                       control={form.control}
                       name="listedPrice"
                       render={({ field }) => (
-                        <FormItem className="mt-4">
-                          <FormLabel>Price ($)</FormLabel>
+                        <FormItem>
+                          <FormLabel>Price (₹)</FormLabel>
                           <FormControl>
-                            <Input 
-                              type="number" 
-                              placeholder="0.00" 
-                              step="0.01"
-                              {...field} 
+                            <Input
+                              type="number"
+                              placeholder="Price per unit"
+                              {...field}
                             />
                           </FormControl>
+                          <FormDescription>
+                            {form.watch("materialTypeId") ? 
+                              "Default price for selected material (you can change it)" : 
+                              `Set a price per ${form.watch("unit") || "unit"} for your material`}
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
