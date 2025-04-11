@@ -1,73 +1,92 @@
-# Welcome to your Lovable project
+# EcoScrap - Scrap Material Marketplace
 
-## Project info
+A platform connecting scrap sellers with buyers to promote recycling and sustainable waste management.
 
-**URL**: https://lovable.dev/projects/5285fe66-dd4e-43d7-8a06-3e05f699834a
+## Features
 
-## How can I edit this code?
+- 🗺️ Interactive map for browsing scrap listings by location
+- 📱 Responsive design for mobile and desktop
+- 🔐 User authentication with Supabase
+- 📸 Upload and manage scrap listings with images
+- 📍 Geolocation tracking for pickup locations
+- 💰 Price tracking and material categorization
 
-There are several ways of editing your application.
+## Setup Instructions for Team Members
 
-**Use Lovable**
+### Prerequisites
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/5285fe66-dd4e-43d7-8a06-3e05f699834a) and start prompting.
+- Node.js (v18 or higher)
+- npm or yarn
+- Supabase account
+- Google Maps API key
 
-Changes made via Lovable will be committed automatically to this repo.
+### Step 1: Clone the repository
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+git clone https://github.com/prasun24-15/scrap_x.git
+cd scrap_x
 ```
 
-**Edit a file directly in GitHub**
+### Step 2: Install dependencies
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+npm install
+# or
+yarn install
+```
 
-**Use GitHub Codespaces**
+### Step 3: Environment Setup
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Create a `.env` file in the root directory with the following variables:
 
-## What technologies are used for this project?
+```
+VITE_SUPABASE_URL=YOUR_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+VITE_GOOGLE_MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY
+```
 
-This project is built with:
+> Note: You'll need to get these values from the team leader or set up your own accounts for development.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Step 4: Database Setup
 
-## How can I deploy this project?
+1. Create a Supabase project
+2. Run the following SQL scripts to set up the database:
+   - Create the necessary tables (material_types, scrap_listings, etc.)
+   - Set up the PostGIS extension for geolocation
+   - Create the geolocation functions
 
-Simply open [Lovable](https://lovable.dev/projects/5285fe66-dd4e-43d7-8a06-3e05f699834a) and click on Share -> Publish.
+The SQL scripts are available in the `src/integrations/supabase` directory.
 
-## Can I connect a custom domain to my Lovable project?
+### Step 5: Start the development server
 
-Yes it is!
+```bash
+npm run dev
+# or
+yarn dev
+```
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+The application should now be running at http://localhost:8081 (or another port if 8081 is already in use).
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## Database Schema
+
+- `scrap_listings`: Stores all scrap listings with geolocation data
+- `material_types`: Categories of recyclable materials
+- `profiles`: User profile information
+
+## API Functions
+
+- `create_geography_point`: Converts longitude/latitude to PostGIS format
+- `get_listings_with_coordinates`: Retrieves listings with coordinates
+
+## Contributing
+
+1. Create a new branch for your feature
+2. Make your changes
+3. Submit a pull request
+
+## Hackathon Team
+
+- [Your Name]
+- [Team Member 2]
+- [Team Member 3]
+- [Team Member 4]
