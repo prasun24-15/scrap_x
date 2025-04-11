@@ -36,6 +36,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ScrapPickupMap from "@/components/map/ScrapPickupMap";
 import ImageUploader from "@/components/listing/ImageUploader";
+import MaterialDetection from "@/components/listing/MaterialDetection";
+import MaterialComposition from "@/components/listing/MaterialComposition";
 import { Loader2 } from "lucide-react";
 
 interface Location {
@@ -43,10 +45,18 @@ interface Location {
   lng: number;
 }
 
+interface MaterialItem {
+  name: string;
+  count: number;
+  materialTypeId?: string;
+  quantity?: number;
+  basePrice?: number;
+}
+
 const formSchema = z.object({
   title: z.string().min(3, "Title must be at least 3 characters"),
   description: z.string().optional(),
-  materialTypeId: z.string().uuid("Please select a material type"),
+  materialTypeId: z.string().uuid("Please select a material type").optional(),
   quantity: z.string().min(1, "Quantity is required"),
   unit: z.string().min(1, "Unit is required"),
   listedPrice: z.string().min(1, "Price is required"),
@@ -62,6 +72,9 @@ const CreateListing = () => {
   const [loadingMaterials, setLoadingMaterials] = useState(true);
   const [listingMethod, setListingMethod] = useState("manual");
   const [submitting, setSubmitting] = useState(false);
+  const [detectedMaterials, setDetectedMaterials] = useState<MaterialItem[]>([]);
+  const [materialComposition, setMaterialComposition] = useState<MaterialItem[]>([]);
+  const [isMultiMaterial, setIsMultiMaterial] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -103,6 +116,13 @@ const CreateListing = () => {
     fetchMaterialTypes();
   }, []);
 
+  useEffect(() => {
+    // Reset the multi-material flag when switching modes
+    setIsMultiMaterial(false);
+    setDetectedMaterials([]);
+    setMaterialComposition([]);
+  }, [listingMethod]);
+
   const handleLocationSelected = (location: Location) => {
     setSelectedLocation(location);
   };
@@ -111,48 +131,51 @@ const CreateListing = () => {
     form.setValue("imageUrl", imageUrl);
   };
 
-  const analyzeImage = () => {
-    // This is where ML model integration would happen
-    // For now, we'll simulate an ML response after a delay
-    const imageUrl = form.getValues("imageUrl");
+  const handleMaterialDetection = (materials: MaterialItem[]) => {
+    setDetectedMaterials(materials);
     
-    if (!imageUrl) {
-      toast({
-        title: "No Image",
-        description: "Please upload an image first",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    toast({
-      title: "Analyzing Image",
-      description: "Please wait while we analyze your image...",
-    });
-    
-    // Simulate ML processing
-    setTimeout(() => {
-      // Mock results - in a real app, this would come from an ML model
-      const mockMaterialType = materialTypes.length > 0 ? 
-        materialTypes[Math.floor(Math.random() * materialTypes.length)].id : "";
+    if (materials.length > 0) {
+      // Update form with first detected material by default
+      const primaryMaterial = materials[0];
+      const materialType = materialTypes.find(mt => mt.name === primaryMaterial.name);
       
-      form.setValue("materialTypeId", mockMaterialType);
-      form.setValue("title", "Recycled Material");
-      form.setValue("description", "Automatically analyzed waste material");
-      
-      // Set the default price based on the selected material type
-      if (mockMaterialType) {
-        const selectedMaterial = materialTypes.find(type => type.id === mockMaterialType);
-        if (selectedMaterial && selectedMaterial.base_price) {
-          form.setValue("listedPrice", selectedMaterial.base_price.toString());
+      if (materialType) {
+        form.setValue("materialTypeId", materialType.id);
+        
+        if (materialType.base_price) {
+          form.setValue("listedPrice", materialType.base_price.toString());
         }
+        
+        // Set default title based on detected materials
+        const title = materials.length > 1 
+          ? `Mixed ${materials.map(m => m.name).join(", ")} Scrap` 
+          : `${primaryMaterial.name} Scrap Collection`;
+        form.setValue("title", title);
+        
+        // Set default description with composition information
+        const description = materials.length > 1
+          ? `Mixed recyclable materials with ${materials.map(m => 
+              `${m.name} ${m.count > 1 ? `(${m.count})` : ""}`
+            ).join(", ")}.`
+          : `${primaryMaterial.name} materials for recycling.`;
+        form.setValue("description", description);
       }
       
-      toast({
-        title: "Analysis Complete",
-        description: "Material type has been detected. Please review and adjust if needed.",
-      });
-    }, 2000);
+      // If more than one material type detected, enable multi-material mode
+      setIsMultiMaterial(materials.length > 1);
+    }
+  };
+
+  const handleMaterialComposition = (materials: MaterialItem[]) => {
+    setMaterialComposition(materials);
+    
+    // Update the quantity field based on the total of all materials
+    if (materials.length > 0) {
+      const totalQuantity = materials.reduce((sum, material) => 
+        sum + (material.quantity || 0), 0
+      );
+      form.setValue("quantity", totalQuantity.toString());
+    }
   };
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -173,7 +196,7 @@ const CreateListing = () => {
       });
       return;
     }
-    
+
     try {
       setSubmitting(true);
       
@@ -186,34 +209,90 @@ const CreateListing = () => {
 
       if (geoError) throw geoError;
       
-      // Convert values for database
-      const listingData = {
-        seller_id: user.id,
-        title: values.title,
-        description: values.description,
-        material_type_id: values.materialTypeId,
-        quantity: parseFloat(values.quantity),
-        unit: values.unit,
-        listed_price: parseFloat(values.listedPrice),
-        address: values.address,
-        image_url: values.imageUrl,
-        geolocation: geoData,
-        status: 'active',
-      };
-      
-      console.log("Sending listing data:", listingData);
-      
-      const { data, error } = await supabase
-        .from('scrap_listings')
-        .insert(listingData)
-        .select();
-      
-      if (error) throw error;
-      
-      toast({
-        title: "Listing Created",
-        description: "Your scrap listing has been created successfully",
-      });
+      if (listingMethod === 'ml' && isMultiMaterial && materialComposition.length > 0) {
+        // Create multiple listings for each material
+        const createdListings = [];
+        let hasError = false;
+        
+        for (const material of materialComposition) {
+          if (!material.materialTypeId || !material.quantity) continue;
+          
+          const materialType = materialTypes.find(mt => mt.id === material.materialTypeId);
+          if (!materialType) continue;
+          
+          const listingData = {
+            seller_id: user.id,
+            title: `${materialType.name} from ${values.title}`,
+            description: `${values.description}\n\nThis is part of a mixed material listing. Material: ${materialType.name}`,
+            material_type_id: material.materialTypeId,
+            quantity: material.quantity,
+            unit: values.unit,
+            listed_price: material.basePrice || parseFloat(values.listedPrice),
+            address: values.address,
+            image_url: values.imageUrl,
+            geolocation: geoData,
+            status: 'active',
+            metadata: { 
+              isPartOfMixedListing: true,
+              originalTitle: values.title,
+              compositionPercentage: Math.round((material.count / materialComposition.reduce((sum, m) => sum + m.count, 0)) * 100)
+            }
+          };
+          
+          const { data, error } = await supabase
+            .from('scrap_listings')
+            .insert(listingData)
+            .select();
+          
+          if (error) {
+            console.error("Error creating listing for material", materialType.name, ":", error);
+            hasError = true;
+          } else if (data) {
+            createdListings.push(data[0]);
+          }
+        }
+        
+        if (hasError) {
+          toast({
+            title: "Partial Success",
+            description: "Some material listings may not have been created successfully.",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Success",
+            description: `Created ${createdListings.length} listings for your mixed materials`,
+          });
+        }
+        
+      } else {
+        // Standard single material listing
+        const listingData = {
+          seller_id: user.id,
+          title: values.title,
+          description: values.description,
+          material_type_id: values.materialTypeId,
+          quantity: parseFloat(values.quantity),
+          unit: values.unit,
+          listed_price: parseFloat(values.listedPrice),
+          address: values.address,
+          image_url: values.imageUrl,
+          geolocation: geoData,
+          status: 'active',
+        };
+        
+        const { data, error } = await supabase
+          .from('scrap_listings')
+          .insert(listingData)
+          .select();
+        
+        if (error) throw error;
+        
+        toast({
+          title: "Listing Created",
+          description: "Your scrap listing has been created successfully",
+        });
+      }
       
       navigate('/listings');
     } catch (error) {
@@ -371,20 +450,19 @@ const CreateListing = () => {
                           </FormItem>
                         )}
                       />
-                    </TabsContent>
-                    
-                    <TabsContent value="ml" className="space-y-4 mt-0">
-                      <div className="space-y-4">
+                      
+                      <div className="grid grid-cols-2 gap-4 mt-4">
                         <FormField
                           control={form.control}
-                          name="imageUrl"
+                          name="quantity"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Upload Material Image</FormLabel>
+                              <FormLabel>Quantity</FormLabel>
                               <FormControl>
-                                <ImageUploader
-                                  initialImage={field.value}
-                                  onImageSelected={handleImageSelected}
+                                <Input 
+                                  type="number" 
+                                  placeholder="0.00" 
+                                  {...field} 
                                 />
                               </FormControl>
                               <FormMessage />
@@ -392,23 +470,94 @@ const CreateListing = () => {
                           )}
                         />
                         
-                        <Button
-                          type="button"
-                          onClick={analyzeImage}
-                          disabled={!form.getValues("imageUrl")}
-                          className="w-full"
-                        >
-                          Analyze Image
-                        </Button>
+                        <FormField
+                          control={form.control}
+                          name="unit"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Unit</FormLabel>
+                              <Select 
+                                onValueChange={field.onChange} 
+                                defaultValue={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select unit" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                                  <SelectItem value="g">Grams (g)</SelectItem>
+                                  <SelectItem value="ton">Tons</SelectItem>
+                                  <SelectItem value="lb">Pounds (lb)</SelectItem>
+                                  <SelectItem value="pc">Pieces</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      
+                      <FormField
+                        control={form.control}
+                        name="listedPrice"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Price (₹)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                placeholder="Price per unit"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {form.watch("materialTypeId") ? 
+                                "Default price for selected material (you can change it)" : 
+                                `Set a price per ${form.watch("unit") || "unit"} for your material`}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </TabsContent>
+                    
+                    <TabsContent value="ml" className="space-y-4 mt-0">
+                      <div className="space-y-4">
+                        <MaterialDetection 
+                          onDetectionComplete={handleMaterialDetection}
+                          materialTypes={materialTypes}
+                        />
+                        
+                        {detectedMaterials.length > 0 && (
+                          <MaterialComposition 
+                            materials={detectedMaterials}
+                            materialTypes={materialTypes}
+                            onQuantityChange={handleMaterialComposition}
+                          />
+                        )}
+                        
+                        <FormField
+                          control={form.control}
+                          name="imageUrl"
+                          render={({ field }) => (
+                            <FormItem className="hidden">
+                              <FormControl>
+                                <Input type="hidden" {...field} />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
                         
                         <FormField
                           control={form.control}
                           name="title"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Title</FormLabel>
+                              <FormLabel>Listing Title</FormLabel>
                               <FormControl>
-                                <Input placeholder="Title will be auto-filled after analysis" {...field} />
+                                <Input placeholder="Title for your listing" {...field} />
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -417,33 +566,146 @@ const CreateListing = () => {
                         
                         <FormField
                           control={form.control}
-                          name="materialTypeId"
+                          name="description"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Detected Material Type</FormLabel>
+                              <FormLabel>Description</FormLabel>
+                              <FormControl>
+                                <Textarea 
+                                  placeholder="Describe the materials you're offering" 
+                                  {...field} 
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        
+                        {!isMultiMaterial && (
+                          <>
+                            <FormField
+                              control={form.control}
+                              name="materialTypeId"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Material Type</FormLabel>
+                                  <Select 
+                                    onValueChange={(value) => {
+                                      field.onChange(value);
+                                      // Set default price when material type changes
+                                      const selectedMaterial = materialTypes.find(type => type.id === value);
+                                      if (selectedMaterial && selectedMaterial.base_price) {
+                                        form.setValue("listedPrice", selectedMaterial.base_price.toString());
+                                      }
+                                    }}
+                                    defaultValue={field.value}
+                                    disabled={loadingMaterials}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select material type" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {materialTypes.map((type) => (
+                                        <SelectItem key={type.id} value={type.id}>
+                                          {type.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                              <FormField
+                                control={form.control}
+                                name="quantity"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Quantity</FormLabel>
+                                    <FormControl>
+                                      <Input 
+                                        type="number" 
+                                        placeholder="0.00" 
+                                        {...field} 
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                              
+                              <FormField
+                                control={form.control}
+                                name="listedPrice"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>Price (₹)</FormLabel>
+                                    <FormControl>
+                                      <Input
+                                        type="number"
+                                        placeholder="Price per unit"
+                                        {...field}
+                                      />
+                                    </FormControl>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
+                            </div>
+                          </>
+                        )}
+                        
+                        {isMultiMaterial && (
+                          <>
+                            <FormField
+                              control={form.control}
+                              name="quantity"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Total Quantity</FormLabel>
+                                  <FormControl>
+                                    <Input 
+                                      type="number" 
+                                      placeholder="0.00" 
+                                      {...field}
+                                      disabled
+                                    />
+                                  </FormControl>
+                                  <FormDescription>
+                                    Total quantity calculated from material composition
+                                  </FormDescription>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </>
+                        )}
+                        
+                        <FormField
+                          control={form.control}
+                          name="unit"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Unit</FormLabel>
                               <Select 
-                                onValueChange={(value) => {
-                                  field.onChange(value);
-                                  // Set default price when material type changes
-                                  const selectedMaterial = materialTypes.find(type => type.id === value);
-                                  if (selectedMaterial && selectedMaterial.base_price) {
-                                    form.setValue("listedPrice", selectedMaterial.base_price.toString());
-                                  }
-                                }}
+                                onValueChange={field.onChange} 
                                 defaultValue={field.value}
-                                disabled={loadingMaterials}
                               >
                                 <FormControl>
                                   <SelectTrigger>
-                                    <SelectValue placeholder="Will be detected from image" />
+                                    <SelectValue placeholder="Select unit" />
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {materialTypes.map((type) => (
-                                    <SelectItem key={type.id} value={type.id}>
-                                      {type.name}
-                                    </SelectItem>
-                                  ))}
+                                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                                  <SelectItem value="g">Grams (g)</SelectItem>
+                                  <SelectItem value="ton">Tons</SelectItem>
+                                  <SelectItem value="lb">Pounds (lb)</SelectItem>
+                                  <SelectItem value="pc">Pieces</SelectItem>
                                 </SelectContent>
                               </Select>
                               <FormMessage />
@@ -452,77 +714,6 @@ const CreateListing = () => {
                         />
                       </div>
                     </TabsContent>
-                    
-                    <div className="grid grid-cols-2 gap-4 mt-4">
-                      <FormField
-                        control={form.control}
-                        name="quantity"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Quantity</FormLabel>
-                            <FormControl>
-                              <Input 
-                                type="number" 
-                                placeholder="0.00" 
-                                {...field} 
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={form.control}
-                        name="unit"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Unit</FormLabel>
-                            <Select 
-                              onValueChange={field.onChange} 
-                              defaultValue={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select unit" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                                <SelectItem value="g">Grams (g)</SelectItem>
-                                <SelectItem value="ton">Tons</SelectItem>
-                                <SelectItem value="lb">Pounds (lb)</SelectItem>
-                                <SelectItem value="pc">Pieces</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    
-                    <FormField
-                      control={form.control}
-                      name="listedPrice"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Price (₹)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              placeholder="Price per unit"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            {form.watch("materialTypeId") ? 
-                              "Default price for selected material (you can change it)" : 
-                              `Set a price per ${form.watch("unit") || "unit"} for your material`}
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
                   </CardContent>
                 </Card>
               </motion.div>
@@ -578,7 +769,7 @@ const CreateListing = () => {
                         Creating...
                       </>
                     ) : (
-                      "Create Listing"
+                      isMultiMaterial ? "Create Multiple Listings" : "Create Listing"
                     )}
                   </Button>
                 </div>
