@@ -51,6 +51,7 @@ interface MaterialItem {
   materialTypeId?: string;
   quantity?: number;
   basePrice?: number;
+  customPrice?: number;
 }
 
 const formSchema = z.object({
@@ -128,7 +129,12 @@ const CreateListing = () => {
   };
 
   const handleImageSelected = (imageUrl: string) => {
-    form.setValue("imageUrl", imageUrl);
+    console.log("Image selected in CreateListing:", imageUrl);
+    if (imageUrl) {
+      form.setValue("imageUrl", imageUrl, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+    } else {
+      console.warn("Received empty imageUrl in handleImageSelected");
+    }
   };
 
   const handleMaterialDetection = (materials: MaterialItem[]) => {
@@ -196,9 +202,11 @@ const CreateListing = () => {
       });
       return;
     }
-
+    
     try {
       setSubmitting(true);
+      
+      console.log("Form values:", values);
       
       // Format geolocation using PostGIS functions
       const { data: geoData, error: geoError } = await supabase
@@ -207,55 +215,113 @@ const CreateListing = () => {
           latitude: selectedLocation.lat
         });
 
-      if (geoError) throw geoError;
+      if (geoError) {
+        console.error("Error creating geography point:", geoError);
+        throw geoError;
+      }
+      
+      console.log("Geography point created:", geoData);
       
       if (listingMethod === 'ml' && isMultiMaterial && materialComposition.length > 0) {
         // Create multiple listings for each material
         const createdListings = [];
         let hasError = false;
+        let errorMessages = [];
         
-        for (const material of materialComposition) {
-          if (!material.materialTypeId || !material.quantity) continue;
+        // First create the parent listing as a "mixed materials" listing
+        const parentListingData = {
+          seller_id: user.id,
+          title: values.title,
+          description: values.description || '',
+          material_type_id: materialComposition[0].materialTypeId, // Use first material for parent
+          quantity: parseFloat(values.quantity) || 0,
+          unit: values.unit,
+          listed_price: calculateWeightedAveragePrice(materialComposition),
+          address: values.address,
+          image_url: values.imageUrl || '',
+          geolocation: geoData,
+          status: 'active'
+        };
+        
+        // Helper function to calculate weighted average price
+        function calculateWeightedAveragePrice(materials: MaterialItem[]): number {
+          if (!materials || materials.length === 0) return 0;
           
-          const materialType = materialTypes.find(mt => mt.id === material.materialTypeId);
-          if (!materialType) continue;
+          let totalWeight = 0;
+          let weightedSum = 0;
+        
+          materials.forEach(material => {
+            const weight = Number(material.quantity) || 0;
+            const price = material.customPrice !== undefined 
+              ? Number(material.customPrice) 
+              : Number(material.basePrice) || 0;
+            
+            totalWeight += weight;
+            weightedSum += weight * price;
+          });
+        
+          // Return the weighted average (total price divided by total weight)
+          return totalWeight > 0 ? weightedSum / totalWeight : 0;
+        }
+        
+        console.log("Submitting parent listing data:", parentListingData);
+        
+        const { data: parentData, error: parentError } = await supabase
+          .from('scrap_listings')
+          .insert(parentListingData)
+          .select();
+        
+        if (parentError) {
+          console.error("Error creating parent listing:", parentError);
+          console.error("Error details:", JSON.stringify(parentError));
+          hasError = true;
+          errorMessages.push("Failed to create parent listing");
+        } else if (parentData && parentData[0]) {
+          createdListings.push(parentData[0]);
+          const parentId = parentData[0].id;
           
-          const listingData = {
-            seller_id: user.id,
-            title: `${materialType.name} from ${values.title}`,
-            description: `${values.description}\n\nThis is part of a mixed material listing. Material: ${materialType.name}`,
-            material_type_id: material.materialTypeId,
-            quantity: material.quantity,
-            unit: values.unit,
-            listed_price: material.basePrice || parseFloat(values.listedPrice),
-            address: values.address,
-            image_url: values.imageUrl,
-            geolocation: geoData,
-            status: 'active',
-            metadata: { 
-              isPartOfMixedListing: true,
-              originalTitle: values.title,
-              compositionPercentage: Math.round((material.count / materialComposition.reduce((sum, m) => sum + m.count, 0)) * 100)
+          // Then create individual listings for each material
+          for (const material of materialComposition) {
+            if (!material.materialTypeId || !material.quantity) continue;
+            
+            const materialType = materialTypes.find(mt => mt.id === material.materialTypeId);
+            if (!materialType) continue;
+            
+            const percentage = Math.round((material.count / materialComposition.reduce((sum, m) => sum + m.count, 0)) * 100);
+            
+      const listingData = {
+        seller_id: user.id,
+              title: `${materialType.name} from ${values.title}`,
+              description: `${values.description || ''}\n\nThis is part of a mixed material listing. Material: ${materialType.name} (${percentage}%)`,
+              material_type_id: material.materialTypeId,
+              quantity: material.quantity || 0,
+        unit: values.unit,
+              listed_price: material.customPrice || material.basePrice || 0,
+        address: values.address,
+              image_url: values.imageUrl || '',
+              geolocation: geoData,
+              status: 'active'
+      };
+      
+      const { data, error } = await supabase
+        .from('scrap_listings')
+        .insert(listingData)
+        .select();
+      
+            if (error) {
+              console.error("Error creating listing for material", materialType.name, ":", error);
+              hasError = true;
+              errorMessages.push(`Failed to create listing for ${materialType.name}`);
+            } else if (data) {
+              createdListings.push(data[0]);
             }
-          };
-          
-          const { data, error } = await supabase
-            .from('scrap_listings')
-            .insert(listingData)
-            .select();
-          
-          if (error) {
-            console.error("Error creating listing for material", materialType.name, ":", error);
-            hasError = true;
-          } else if (data) {
-            createdListings.push(data[0]);
           }
         }
         
         if (hasError) {
           toast({
             title: "Partial Success",
-            description: "Some material listings may not have been created successfully.",
+            description: `Created ${createdListings.length} listings, but some failed: ${errorMessages.join(', ')}`,
             variant: "destructive",
           });
         } else {
@@ -270,28 +336,34 @@ const CreateListing = () => {
         const listingData = {
           seller_id: user.id,
           title: values.title,
-          description: values.description,
+          description: values.description || '',
           material_type_id: values.materialTypeId,
-          quantity: parseFloat(values.quantity),
+          quantity: parseFloat(values.quantity) || 0,
           unit: values.unit,
-          listed_price: parseFloat(values.listedPrice),
+          listed_price: parseFloat(values.listedPrice) || 0,
           address: values.address,
-          image_url: values.imageUrl,
+          image_url: values.imageUrl || '',
           geolocation: geoData,
           status: 'active',
         };
+        
+        console.log("Submitting standard listing data:", listingData);
         
         const { data, error } = await supabase
           .from('scrap_listings')
           .insert(listingData)
           .select();
         
-        if (error) throw error;
-        
-        toast({
-          title: "Listing Created",
-          description: "Your scrap listing has been created successfully",
-        });
+        if (error) {
+          console.error("Error creating standard listing:", error);
+          console.error("Error details:", JSON.stringify(error));
+          throw error;
+        }
+      
+      toast({
+        title: "Listing Created",
+        description: "Your scrap listing has been created successfully",
+      });
       }
       
       navigate('/listings');
@@ -299,7 +371,7 @@ const CreateListing = () => {
       console.error("Error creating listing:", error);
       toast({
         title: "Error",
-        description: "Failed to create listing. Please try again.",
+        description: error.message || "Failed to create listing. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -450,7 +522,7 @@ const CreateListing = () => {
                           </FormItem>
                         )}
                       />
-                      
+                    
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <FormField
                           control={form.control}
@@ -458,51 +530,51 @@ const CreateListing = () => {
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel>Quantity</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  type="number" 
-                                  placeholder="0.00" 
-                                  {...field} 
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="unit"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Unit</FormLabel>
-                              <Select 
-                                onValueChange={field.onChange} 
-                                defaultValue={field.value}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select unit" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="kg">Kilograms (kg)</SelectItem>
-                                  <SelectItem value="g">Grams (g)</SelectItem>
-                                  <SelectItem value="ton">Tons</SelectItem>
-                                  <SelectItem value="lb">Pounds (lb)</SelectItem>
-                                  <SelectItem value="pc">Pieces</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
+                            <FormControl>
+                              <Input 
+                                type="number" 
+                                placeholder="0.00" 
+                                {...field} 
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                       
                       <FormField
                         control={form.control}
-                        name="listedPrice"
+                        name="unit"
                         render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Unit</FormLabel>
+                            <Select 
+                              onValueChange={field.onChange} 
+                              defaultValue={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select unit" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="kg">Kilograms (kg)</SelectItem>
+                                <SelectItem value="g">Grams (g)</SelectItem>
+                                <SelectItem value="ton">Tons</SelectItem>
+                                <SelectItem value="lb">Pounds (lb)</SelectItem>
+                                <SelectItem value="pc">Pieces</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    
+                    <FormField
+                      control={form.control}
+                      name="listedPrice"
+                      render={({ field }) => (
                           <FormItem>
                             <FormLabel>Price (₹)</FormLabel>
                             <FormControl>
@@ -626,10 +698,10 @@ const CreateListing = () => {
                                 render={({ field }) => (
                                   <FormItem>
                                     <FormLabel>Quantity</FormLabel>
-                                    <FormControl>
-                                      <Input 
-                                        type="number" 
-                                        placeholder="0.00" 
+                          <FormControl>
+                            <Input 
+                              type="number" 
+                              placeholder="0.00" 
                                         {...field} 
                                       />
                                     </FormControl>
@@ -648,13 +720,13 @@ const CreateListing = () => {
                                       <Input
                                         type="number"
                                         placeholder="Price per unit"
-                                        {...field}
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
+                              {...field} 
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                             </div>
                           </>
                         )}

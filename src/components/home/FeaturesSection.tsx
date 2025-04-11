@@ -1,8 +1,7 @@
-
 import { motion } from "framer-motion";
 import { 
   Recycle, 
-  DollarSign, 
+  IndianRupee,
   Trees, // Changed from Tree to Trees
   Truck, 
   UserCheck, 
@@ -16,7 +15,7 @@ const features = [
     description: "List your recyclable materials with just a few clicks and connect with buyers."
   },
   {
-    icon: <DollarSign className="h-8 w-8" />,
+    icon: <IndianRupee className="h-8 w-8" />,
     title: "Competitive Pricing",
     description: "Get the best value for your materials with our transparent marketplace."
   },

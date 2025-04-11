@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,7 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Filter, PlusCircle, MapPin, X } from "lucide-react";
+import { Filter, PlusCircle, MapPin, X, Package, Calendar, Eye, ShoppingCart, RefreshCw, Edit, Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +22,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/AuthContext";
+import { DEFAULT_SCRAP_IMAGE } from "@/components/listing/ImageUploader";
 
 interface MaterialType {
   id: string;
@@ -53,6 +54,7 @@ interface ScrapListing {
 }
 
 const Listings = () => {
+  const { user } = useAuth();
   const [listings, setListings] = useState<ScrapListing[]>([]);
   const [filteredListings, setFilteredListings] = useState<ScrapListing[]>([]);
   const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);
@@ -60,55 +62,104 @@ const Listings = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log("Fetching all available listings...");
+      console.log("Current user:", user?.id);
+      
+      // Fetch material types for filters
+      const { data: typeData, error: typeError } = await supabase
+        .from('material_types')
+        .select('*')
+        .order('name');
+        
+      if (typeError) {
+        console.error("Error fetching material types:", typeError);
+        throw typeError;
+      }
+        
+      console.log(`Fetched ${typeData?.length || 0} material types`);
+      setMaterialTypes(typeData || []);
+        
+      // Extract unique categories
+      const uniqueCategories = Array.from(
+        new Set((typeData || []).map(type => type.category))
+      ).filter(Boolean) as string[];
+        
+      setCategories(uniqueCategories);
+        
+      // Fetch ALL listings with material types included
+      const { data, error } = await supabase
+        .from('scrap_listings')
+        .select(`
+          *,
+          material_type:material_type_id (
+            id, name, category
+          )
+        `)
+        // Temporarily remove status filter to check if that's the issue
+        // .eq('status', 'active')
+        .order('created_at', { ascending: false });
+        
+      if (error) {
+        console.error("Error fetching listings:", error);
+        throw error;
+      }
+        
+      console.log(`Fetched ${data?.length || 0} listings:`, data);
+        
+      if (!data || data.length === 0) {
+        // Log the result of a simple query to check if there are any listings at all
+        console.log("No listings found, checking all listings");
+        const { data: checkData, error: checkError } = await supabase
+          .from('scrap_listings')
+          .select('id, status, title, created_at')
+          .limit(10);
+          
+        console.log("Raw listing check results:", checkData, checkError);
+        
+        if (checkData && checkData.length > 0) {
+          console.log("Found listings but they may not be active, showing all listings instead");
+          // If we found listings but they're not active, use them anyway
+          const { data: allData, error: allError } = await supabase
+            .from('scrap_listings')
+            .select(`
+              *,
+              material_type:material_type_id (
+                id, name, category
+              )
+            `)
+            .order('created_at', { ascending: false });
+            
+          if (!allError && allData) {
+            console.log(`Using all ${allData.length} listings regardless of status`);
+            setListings(allData);
+            setFilteredListings(allData);
+            return;
+          }
+        }
+      }
+        
+      setListings(data || []);
+      setFilteredListings(data || []);
+    } catch (error: any) {
+      console.error("Error fetching data:", error);
+      setError(error.message || "Failed to load listings");
+      toast({
+        title: "Error",
+        description: "Failed to load listings. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
   
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        // Fetch material types for filters
-        const { data: typeData, error: typeError } = await supabase
-          .from('material_types')
-          .select('*')
-          .order('name');
-          
-        if (typeError) throw typeError;
-        setMaterialTypes(typeData || []);
-        
-        // Extract unique categories
-        const uniqueCategories = Array.from(
-          new Set((typeData || []).map(type => type.category))
-        ).filter(Boolean) as string[];
-        
-        setCategories(uniqueCategories);
-        
-        // Fetch listings with material types included
-        const { data, error } = await supabase
-          .from('scrap_listings')
-          .select(`
-            *,
-            material_type:material_type_id (
-              id, name, category
-            )
-          `)
-          .eq('status', 'active')
-          .order('created_at', { ascending: false });
-        
-        if (error) throw error;
-        setListings(data || []);
-        setFilteredListings(data || []);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-        toast({
-          title: "Error",
-          description: "Failed to load listings. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    
     fetchData();
   }, []);
   
@@ -131,6 +182,7 @@ const Listings = () => {
       );
     }
     
+    console.log(`Applied filters: ${filtered.length} listings remaining`);
     setFilteredListings(filtered);
   }, [selectedMaterialTypes, selectedCategories, listings]);
   
@@ -177,6 +229,38 @@ const Listings = () => {
     }
   };
   
+  // Handle marking a listing as sold
+  const handleMarkAsSold = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('scrap_listings')
+        .update({ status: 'sold' })
+        .eq('id', id)
+        .eq('seller_id', user?.id);
+      
+      if (error) throw error;
+      
+      // Update local state
+      setListings(
+        listings.map(listing => 
+          listing.id === id ? { ...listing, status: 'sold' } : listing
+        )
+      );
+      
+      toast({
+        title: "Success",
+        description: "Listing has been marked as sold",
+      });
+    } catch (error) {
+      console.error("Error marking listing as sold:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update the listing status",
+        variant: "destructive",
+      });
+    }
+  };
+  
   return (
     <div className="container mx-auto px-4 py-8">
       <motion.div 
@@ -193,6 +277,16 @@ const Listings = () => {
         </div>
         
         <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            onClick={fetchData} 
+            disabled={loading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="flex items-center gap-2">
@@ -267,158 +361,137 @@ const Listings = () => {
       </motion.div>
       
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i} className="animate-pulse">
-              <div className="h-48 bg-gray-200"></div>
-              <CardHeader className="bg-gray-100 h-24"></CardHeader>
-              <CardContent className="bg-gray-50 h-24"></CardContent>
-              <CardFooter className="bg-gray-100 h-16"></CardFooter>
-            </Card>
-          ))}
+        <div className="flex justify-center items-center py-20">
+          <div className="animate-spin h-8 w-8 border-4 border-teal-500 border-t-transparent rounded-full"></div>
+          <span className="ml-3 text-gray-500">Loading listings...</span>
         </div>
       ) : filteredListings.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4 }}
-        >
-          <Card className="text-center p-8">
-            <div className="mb-4 text-gray-400">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-12 w-12 mx-auto"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                />
-              </svg>
-            </div>
-            <h3 className="text-xl font-semibold mb-2">
-              {(selectedMaterialTypes.length > 0 || selectedCategories.length > 0)
-                ? "No listings match your filters" 
-                : "No Listings Found"}
-            </h3>
-            <p className="text-gray-500 mb-6">
-              {(selectedMaterialTypes.length > 0 || selectedCategories.length > 0)
-                ? "Try changing your filter selection" 
-                : "Be the first to create a scrap listing"}
-            </p>
-            {(selectedMaterialTypes.length > 0 || selectedCategories.length > 0) ? (
-              <Button 
-                variant="outline" 
-                onClick={clearFilters}
-                className="mr-2"
-              >
-                Clear Filters
-              </Button>
-            ) : null}
-            <Button asChild className="bg-teal-600 hover:bg-teal-700">
-              <Link to="/create-listing">
-                Create Listing
-              </Link>
-            </Button>
-          </Card>
-        </motion.div>
+        <div className="text-center py-20">
+          <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium mb-2">No Listings Found</h3>
+          <p className="text-gray-500 max-w-md mx-auto mb-6">
+            {selectedMaterialTypes.length > 0 || selectedCategories.length > 0
+              ? "No listings match your current filters. Try adjusting your filter criteria."
+              : "There are no listings available at the moment. Check back later or create your own listing."
+            }
+          </p>
+          <Button asChild>
+            <Link to="/create-listing">
+              <PlusCircle className="h-4 w-4 mr-2" />
+              Create Listing
+            </Link>
+          </Button>
+        </div>
       ) : (
         <motion.div 
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
           variants={containerVariants}
           initial="hidden"
           animate="visible"
         >
-          <AnimatePresence>
-            {filteredListings.map((listing, index) => (
-              <motion.div
-                key={listing.id}
-                variants={itemVariants}
-                layout
-                exit={{ opacity: 0, scale: 0.8 }}
-                whileHover={{ y: -5 }}
-                className="transition-shadow duration-300 hover:shadow-xl"
-              >
-                <Card className="h-full flex flex-col overflow-hidden hover:border-teal-300">
-                  <div className="h-48 overflow-hidden">
-                    {listing.image_url ? (
-                      <img
-                        src={listing.image_url}
-                        alt={listing.title}
-                        className="w-full h-full object-cover transform hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white">
-                        <span className="text-2xl font-bold">{listing.title.charAt(0)}</span>
-                      </div>
-                    )}
+          {filteredListings.map((listing) => (
+            <motion.div key={listing.id} variants={itemVariants}>
+              <Card className="h-full overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+                <div className="relative h-48 bg-gray-100">
+                  {listing.image_url && listing.image_url.length > 10 ? (
+                    <img 
+                      src={listing.image_url}
+                      alt={listing.title} 
+                      className="h-48 w-full object-cover rounded-t-md"
+                      onError={(e) => {
+                        console.error("Failed to load listing image:", listing.image_url);
+                        const target = e.target as HTMLImageElement;
+                        target.src = DEFAULT_SCRAP_IMAGE;
+                      }}
+                    />
+                  ) : (
+                    <div className="h-48 w-full flex flex-col items-center justify-center bg-gray-100">
+                      <Package className="h-16 w-16 text-gray-300" />
+                      <p className="text-gray-400 mt-2">No image</p>
+                    </div>
+                  )}
+                  
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
+                    <div className="flex justify-between items-center">
+                      <Badge className="bg-teal-500 hover:bg-teal-600">
+                        {listing.material_type?.name || "Unknown"}
+                      </Badge>
+                      <Badge variant="outline" className="bg-white">
+                        {listing.material_type?.category || "Uncategorized"}
+                      </Badge>
+                    </div>
                   </div>
                   
-                  <CardHeader>
-                    <CardTitle className="line-clamp-1">{listing.title}</CardTitle>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {listing.material_type && (
-                        <Badge variant="outline" className="text-sm bg-teal-50">
-                          {listing.material_type.name}
-                        </Badge>
-                      )}
-                      {listing.material_type?.category && (
-                        <Badge variant="secondary" className="text-sm">
-                          {listing.material_type.category}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
+                  <div className="absolute top-3 right-3">
+                    <Badge className="text-lg font-semibold px-3 py-1 bg-white text-teal-700 border border-teal-200 shadow-sm">
+                      ₹{listing.listed_price}/{listing.unit}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <CardHeader className="pb-2">
+                  <CardTitle className="line-clamp-1 text-lg">{listing.title}</CardTitle>
+                </CardHeader>
+                
+                <CardContent className="py-2 flex-grow">
+                  <p className="text-gray-500 text-sm line-clamp-2 min-h-[40px]">
+                    {listing.description || "No description provided."}
+                  </p>
                   
-                  <CardContent className="flex-grow">
-                    <p className="text-gray-600 line-clamp-3 mb-2">
-                      {listing.description || "No description provided"}
-                    </p>
-                    {listing.address && (
-                      <div className="flex items-center gap-1 text-gray-500">
-                        <MapPin className="h-4 w-4" />
-                        <span className="text-sm line-clamp-1">
-                          {listing.address}
-                        </span>
-                      </div>
+                  <div className="flex mt-3 text-sm text-gray-500">
+                    <div className="flex items-center mr-4">
+                      <Package className="h-4 w-4 mr-1" />
+                      <span>{listing.quantity} {listing.unit}</span>
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <Calendar className="h-4 w-4 mr-1" />
+                      <span>{new Date(listing.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                </CardContent>
+                
+                <CardFooter className="pt-0 pb-4">
+                  <div className="w-full grid grid-cols-2 gap-2">
+                    <Button variant="outline" asChild>
+                      <Link to={`/pickup/${listing.id}`}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Details
+                      </Link>
+                    </Button>
+                    
+                    {user && listing.seller_id === user.id ? (
+                      // Show edit and mark as sold buttons for user's own listings
+                      listing.status === 'active' ? (
+                        <Button 
+                          onClick={() => handleMarkAsSold(listing.id)}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <Check className="h-4 w-4 mr-2" />
+                          Mark as Sold
+                        </Button>
+                      ) : (
+                        <Button asChild variant="secondary">
+                          <Link to={`/edit-listing/${listing.id}`}>
+                            <Edit className="h-4 w-4 mr-2" />
+                            Edit Listing
+                          </Link>
+                        </Button>
+                      )
+                    ) : (
+                      // Show buy button for listings that aren't user's own
+                      <Button asChild>
+                        <Link to={`/pickup/${listing.id}`}>
+                          <ShoppingCart className="h-4 w-4 mr-2" />
+                          Buy
+                        </Link>
+                      </Button>
                     )}
-                  </CardContent>
-                  
-                  <CardFooter className="flex justify-between items-center border-t pt-4">
-                    <div>
-                      <span className="text-teal-600 font-bold">${listing.listed_price}</span>
-                      <span className="text-gray-500 ml-2">• {listing.quantity} {listing.unit}</span>
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button 
-                        asChild 
-                        variant="outline"
-                        size="sm"
-                        className="transition-colors hover:bg-teal-50"
-                      >
-                        <Link to={`/pickup/${listing.id}`}>
-                          View Details
-                        </Link>
-                      </Button>
-                      <Button 
-                        asChild 
-                        size="sm" 
-                        className="bg-teal-600 hover:bg-teal-700 text-white transition-colors"
-                      >
-                        <Link to={`/pickup/${listing.id}`}>
-                          Request
-                        </Link>
-                      </Button>
-                    </div>
-                  </CardFooter>
-                </Card>
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                  </div>
+                </CardFooter>
+              </Card>
+            </motion.div>
+          ))}
         </motion.div>
       )}
     </div>

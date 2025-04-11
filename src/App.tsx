@@ -9,10 +9,14 @@ import Map from "./pages/Map";
 import Listings from "./pages/Listings";
 import CreateListing from "./pages/CreateListing";
 import PickupRequest from "./pages/PickupRequest";
+import MyListings from "./pages/MyListings";
+import DonateListing from "./pages/DonateListing";
+import MyNegotiations from "./pages/MyNegotiations";
 import NotFound from "./pages/NotFound";
 import Layout from "./components/Layout";
 import { AuthProvider } from "./contexts/AuthContext";
 import { Suspense } from "react";
+import EditListing from "@/pages/EditListing";
 
 const App = () => {
   const queryClient = new QueryClient({
@@ -37,6 +41,10 @@ const App = () => {
                   <Route path="/listings" element={<Listings />} />
                   <Route path="/create-listing" element={<CreateListing />} />
                   <Route path="/pickup/:id" element={<PickupRequest />} />
+                  <Route path="/my-listings" element={<MyListings />} />
+                  <Route path="/edit-listing/:id" element={<EditListing />} />
+                  <Route path="/donate" element={<DonateListing />} />
+                  <Route path="/my-negotiations" element={<MyNegotiations />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Route>

@@ -16,6 +16,8 @@ const Layout = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { user, signOut } = useAuth();
+  // ScrapX logo URL (hosted externally)
+  const logoUrl = "https://res.cloudinary.com/ddm7aksef/image/upload/v1744382728/WhatsApp_Image_2025-04-11_at_19.27.03_419fe003_dwgak4.jpg";
 
   useEffect(() => {
     const handleScroll = () => {
@@ -48,20 +50,25 @@ const Layout = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-6 w-6 text-teal-600"
-              >
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </svg>
-              <span className="text-xl font-bold text-gray-900">Scrap X</span>
+              <div className="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center overflow-hidden border border-green-100">
+                <img 
+                  src={logoUrl} 
+                  alt="ScrapX Logo" 
+                  className="h-8 w-8 object-cover" 
+                  loading="eager"
+                  onError={(e) => {
+                    // If image fails to load, show the first letter as fallback
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    target.parentElement?.classList.add('relative');
+                    const textEl = document.createElement('span');
+                    textEl.textContent = 'S';
+                    textEl.className = 'text-xl font-bold text-green-700';
+                    target.parentElement?.appendChild(textEl);
+                  }}
+                />
+              </div>
+              <span className="text-xl font-bold text-gray-900">ScrapX</span>
             </Link>
             
             {/* Desktop Navigation */}
@@ -271,11 +278,31 @@ const Layout = () => {
         <Outlet />
       </main>
       
-      <footer className="bg-gray-900 text-white py-8">
+      <footer className="bg-gray-900 text-white py-12 mt-12">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
-              <h3 className="text-lg font-semibold mb-4">About Scrap X</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="h-8 w-8 rounded-full bg-green-50 flex items-center justify-center overflow-hidden border border-green-100">
+                  <img
+                    src={logoUrl}
+                    alt="ScrapX Logo"
+                    className="h-6 w-6 object-cover" 
+                    loading="eager"
+                    onError={(e) => {
+                      // If image fails to load, show the first letter as fallback
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      target.parentElement?.classList.add('relative');
+                      const textEl = document.createElement('span');
+                      textEl.textContent = 'S';
+                      textEl.className = 'text-sm font-bold text-green-700';
+                      target.parentElement?.appendChild(textEl);
+                    }}
+                  />
+                </div>
+                <span className="text-xl font-bold text-white">ScrapX</span>
+              </div>
               <p className="text-gray-300">
                 A platform to connect scrap sellers with buyers to promote recycling and sustainable waste management.
               </p>
@@ -324,7 +351,7 @@ const Layout = () => {
             </div>
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; {new Date().getFullYear()} Scrap X. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} ScrapX. All rights reserved.</p>
           </div>
         </div>
       </footer>

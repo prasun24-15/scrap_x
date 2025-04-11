@@ -107,7 +107,7 @@ const MaterialsShowcase = ({ materials, loading }: MaterialsShowcaseProps) => {
                       <p className="text-sm text-gray-500 mt-1">{material.category}</p>
                     </div>
                     <div className="bg-teal-50 text-teal-700 px-3 py-1 rounded-full text-sm font-medium">
-                      ${material.base_price}/kg
+                    ₹ {material.base_price}/kg
                     </div>
                   </div>
                 </div>

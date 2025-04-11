@@ -120,19 +120,73 @@ const MyListings = () => {
         throw materialTypesError;
       }
 
+      // Fetch negotiations/requests only if we have listings
+      let negotiationsData = [];
+      if (listingsData && listingsData.length > 0) {
+        const { data: negotiations, error: negotiationsError } = await supabase
+          .from('listing_requests')
+          .select(`
+            id,
+            listing_id,
+            buyer_id,
+            buyer:buyer_id (
+              id,
+              email
+            ),
+            quantity_requested,
+            price_offered,
+            message,
+            status,
+            created_at
+          `)
+          .in('listing_id', listingsData.map(listing => listing.id));
+
+        if (negotiationsError) {
+          console.error("Error fetching negotiations:", negotiationsError);
+          throw negotiationsError;
+        }
+        
+        negotiationsData = negotiations || [];
+      }
+
+      // Count pending negotiations
+      const pendingCount = negotiationsData.filter(req => req.status === 'pending').length || 0;
+      setRequestsCount(pendingCount);
+
       // Combine the data
       const combinedData: Listing[] = listingsData?.map(listing => {
         const materialType = materialTypes?.find(mt => mt.id === listing.material_type_id);
         
+        // Convert SupabaseRequest to ListingRequest type
+        const requests: ListingRequest[] = negotiationsData
+          ?.filter(req => req.listing_id === listing.id)
+          .map(req => {
+            // Get the first buyer in the array or create a default buyer
+            const buyerData = Array.isArray(req.buyer) && req.buyer.length > 0
+              ? req.buyer[0]
+              : { id: req.buyer_id, email: 'Unknown' };
+            
+            return {
+              id: req.id,
+              listing_id: req.listing_id,
+              buyer_id: req.buyer_id,
+              buyer: buyerData,
+              quantity_requested: req.quantity_requested,
+              price_offered: req.price_offered,
+              message: req.message,
+              status: req.status as 'pending' | 'accepted' | 'rejected',
+              created_at: req.created_at
+            };
+          }) || [];
+        
         return {
           ...listing,
           material_type: materialType || { name: 'Unknown', category: 'Unknown' },
-          requests: [] // Initialize empty requests array
+          requests: requests
         };
       }) || [];
       
       setListings(combinedData);
-      setRequestsCount(0); // Reset requests count since we're not fetching requests
       
     } catch (error) {
       console.error("Error in fetchListings:", error);
@@ -274,19 +328,23 @@ const MyListings = () => {
           </div>
         </div>
 
-        <Tabs defaultValue="selling" className="w-full" onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 mb-8">
-            <TabsTrigger value="selling">
+        <Tabs defaultValue={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-6 grid grid-cols-2 w-full max-w-md mx-auto">
+            <TabsTrigger value="selling" className="relative">
               My Listings
-            </TabsTrigger>
-            <TabsTrigger value="requests" className="relative">
-              Requests
-              {requestsCount > 0 && (
-                <Badge className="ml-2 bg-red-500">{requestsCount}</Badge>
+              {listings.filter(l => l.status !== 'deleted').length > 0 && (
+                <Badge className="ml-2 bg-teal-100 text-teal-800 border-teal-200">
+                  {listings.filter(l => l.status !== 'deleted').length}
+                </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="negotiations" className="relative">
+            <TabsTrigger value="requests" className="relative">
               Negotiations
+              {requestsCount > 0 && (
+                <Badge className="ml-2 bg-amber-100 text-amber-800 border-amber-200">
+                  {requestsCount}
+                </Badge>
+              )}
             </TabsTrigger>
           </TabsList>
           
@@ -435,85 +493,73 @@ const MyListings = () => {
                 <div className="animate-spin h-8 w-8 border-4 border-teal-500 border-t-transparent rounded-full mx-auto mb-4"></div>
                 <p className="text-gray-500">Loading requests...</p>
               </div>
-            ) : (
-              listings.flatMap(listing => 
-                listing.requests?.map(request => (
-                  <Card key={request.id} className="overflow-hidden">
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between">
-                        <div>
-                          <CardTitle className="text-lg">Request for: {listing.title}</CardTitle>
-                          <CardDescription>
-                            From: {request.buyer?.email || "Unknown buyer"}
-                          </CardDescription>
-                        </div>
-                        <Badge 
-                          className={`
-                            ${request.status === 'pending' ? 'bg-yellow-500' : 
-                              request.status === 'accepted' ? 'bg-green-500' : 
-                              'bg-red-500'}
-                          `}
-                        >
-                          {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-sm text-gray-500 mb-1">Quantity Requested:</p>
-                          <p className="font-medium">{request.quantity_requested} {listing.unit}</p>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-sm text-gray-500 mb-1">Price Offered:</p>
-                          <p className="font-medium">₹{request.price_offered}</p>
-                        </div>
-                      </div>
-                      
-                      {request.message && (
-                        <div className="mt-2">
-                          <p className="text-sm text-gray-500 mb-1">Message:</p>
-                          <p className="bg-gray-50 p-3 rounded text-sm">{request.message}</p>
-                        </div>
-                      )}
-                      
-                      <div className="text-sm text-gray-500 mt-4 flex items-center">
-                        <Clock className="h-3 w-3 mr-2" />
-                        Requested on {new Date(request.created_at).toLocaleDateString()}
-                      </div>
-                    </CardContent>
-                    
-                    {request.status === 'pending' && (
-                      <CardFooter className="flex gap-2">
-                        <Button 
-                          className="flex-1"
-                          onClick={() => handleRequestAction(request.id, listing.id, 'accepted')}
-                        >
-                          Accept Request
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1"
-                          onClick={() => handleRequestAction(request.id, listing.id, 'rejected')}
-                        >
-                          Reject
-                        </Button>
-                      </CardFooter>
-                    )}
-                  </Card>
-                )) || []
-              ).length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-lg shadow">
-                  <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium mb-2">No requests yet</h3>
-                  <p className="text-gray-500">You don't have any requests on your listings.</p>
+            ) : listings.length === 0 ? (
+              <div className="text-center py-12">
+                <HandCoins className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">No negotiations yet</h3>
+                <p className="text-gray-500 mb-6">Once you create listings, buyer offers will appear here.</p>
+                <div className="flex justify-center">
+                  <Link to="/create-listing">
+                    <Button>Create Listing</Button>
+                  </Link>
                 </div>
-              ) : null
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {listings
+                  .filter(listing => listing.status !== 'deleted' && listing.requests && listing.requests.length > 0)
+                  .map(listing => (
+                    <Card key={listing.id} className="overflow-hidden">
+                      <CardHeader className="pb-2">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <CardTitle className="text-lg flex items-center">
+                              <span className="truncate">{listing.title}</span>
+                              <Badge 
+                                className={`ml-2 ${
+                                  listing.status === 'active' ? 'bg-green-500' :
+                                  listing.status === 'sold' ? 'bg-blue-500' :
+                                  listing.status === 'pending' ? 'bg-yellow-500' :
+                                  'bg-gray-500'
+                                }`}
+                              >
+                                {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
+                              </Badge>
+                            </CardTitle>
+                            <CardDescription>
+                              Price: ₹{listing.listed_price}/{listing.unit} · 
+                              Quantity: {listing.quantity} {listing.unit}
+                            </CardDescription>
+                          </div>
+                          
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => navigate(`/pickup/${listing.id}`)}
+                          >
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Listing
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <NegotiationsManager
+                          listingId={listing.id}
+                          className="w-full"
+                        />
+                      </CardContent>
+                    </Card>
+                  ))}
+                  
+                {listings.filter(listing => listing.status !== 'deleted' && listing.requests && listing.requests.length > 0).length === 0 && (
+                  <div className="text-center py-12 bg-white rounded-lg shadow">
+                    <HandCoins className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium mb-2">No negotiations received yet</h3>
+                    <p className="text-gray-500 mb-6">Your listings haven't received any offers yet.</p>
+                  </div>
+                )}
+              </div>
             )}
-          </TabsContent>
-          
-          <TabsContent value="negotiations" className="space-y-6">
-            <NegotiationsManager />
           </TabsContent>
         </Tabs>
       </motion.div>

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import ScrapPickupMap from "@/components/map/ScrapPickupMap";
+import FixMapLocations from "@/components/map/FixMapLocations";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
@@ -24,6 +25,7 @@ const Map = () => {
   const [gettingLocation, setGettingLocation] = useState(false);
   const [creatingTestListing, setCreatingTestListing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   
   const handleLocationSelected = (location: { lat: number; lng: number }) => {
     console.log("Selected location in parent component:", location);
@@ -194,13 +196,26 @@ const Map = () => {
     const fetchData = async () => {
       try {
         // You can add code here to load any additional data needed for the map
+        
+        // Check if user is admin
+        if (user) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+            
+          if (!error && data && data.role === 'admin') {
+            setIsAdmin(true);
+          }
+        }
       } catch (error) {
         console.error("Error fetching map data:", error);
       }
     };
     
     fetchData();
-  }, []);
+  }, [user]);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -270,12 +285,22 @@ const Map = () => {
             </div>
           </div>
           
-          <ScrapPickupMap 
-            onLocationSelected={handleLocationSelected}
-            initialLocation={userLocation}
-            showAllListings={true}
-            onMapLoad={handleSetMapInstance}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="lg:col-span-3">
+              <ScrapPickupMap 
+                onLocationSelected={handleLocationSelected}
+                initialLocation={userLocation}
+                showAllListings={true}
+                onMapLoad={handleSetMapInstance}
+              />
+            </div>
+            
+            {isAdmin && (
+              <div className="lg:col-span-1">
+                <FixMapLocations />
+              </div>
+            )}
+          </div>
         </>
       ) : (
         <motion.div

@@ -25,7 +25,13 @@ import {
   Truck, 
   Loader2,
   Info, 
-  Eye 
+  Eye,
+  Heart,
+  AlertCircle,
+  HandCoins,
+  ShoppingCart,
+  Check,
+  IndianRupee
 } from "lucide-react";
 import {
   Dialog,
@@ -36,6 +42,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { ListingWithCoordinates, Database } from "@/lib/database.types";
+import RequestListingDialog from "@/components/listing/RequestListingDialog";
+import NegotiationDialog from "@/components/listing/NegotiationDialog";
+import NegotiationsManager from "@/components/listing/NegotiationsManager";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DEFAULT_SCRAP_IMAGE } from '@/components/listing/ImageUploader';
 
 interface Profile {
   id: string;
@@ -52,7 +63,14 @@ interface Location {
 interface MaterialType {
   id: string;
   name: string;
+  category: string;
   description: string | null;
+}
+
+interface NGO {
+  id: string;
+  name: string;
+  description?: string;
 }
 
 interface ScrapListing {
@@ -73,11 +91,18 @@ interface ScrapListing {
   latitude?: number;
   longitude?: number;
   geolocation?: Location;
+  is_donation?: boolean;
+  ngo_id?: string;
+  ngo?: NGO | null;
 }
 
 interface SupabaseScrapListing extends Omit<ScrapListing, 'profiles' | 'material_type'> {
   profiles: Profile | null;
   material_type: MaterialType | null;
+  ngo?: NGO | null;
+  is_donation?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 const PickupRequest = () => {
@@ -93,6 +118,7 @@ const PickupRequest = () => {
   const [showAllListings, setShowAllListings] = useState(false);
   const [isSettingLocation, setIsSettingLocation] = useState(false);
   const [manualLocation, setManualLocation] = useState<Location | null>(null);
+  const [requestSent, setRequestSent] = useState(false);
   
   useEffect(() => {
     if (!id) {
@@ -120,13 +146,30 @@ const PickupRequest = () => {
       if (!listingData) throw new Error('Listing not found');
 
       console.log("Listing data:", listingData);
-      setListing(listingData);
       
-      if (listingData.latitude && listingData.longitude) {
+      // Cast the data to our SupabaseScrapListing type
+      const typedListingData = listingData as SupabaseScrapListing;
+      setListing(typedListingData);
+      
+      if (typedListingData.latitude && typedListingData.longitude) {
         setPickupLocation({
-          lat: listingData.latitude,
-          lng: listingData.longitude
+          lat: typedListingData.latitude,
+          lng: typedListingData.longitude
         });
+      }
+
+      // Check if user has already sent a request
+      if (user) {
+        const { data: requestData, error: requestError } = await supabase
+          .from('listing_requests')
+          .select('*')
+          .eq('listing_id', id)
+          .eq('buyer_id', user.id)
+          .eq('status', 'pending');
+        
+        if (!requestError && requestData && requestData.length > 0) {
+          setRequestSent(true);
+        }
       }
 
       setLoading(false);
@@ -266,625 +309,369 @@ const PickupRequest = () => {
     }
   };
   
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-4xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="flex items-center gap-4 mb-8"
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/listings')}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Listings
+  const handleRequestSent = () => {
+    setRequestSent(true);
+    toast({
+      title: "Request Sent",
+      description: "The seller will be notified of your request",
+    });
+  };
+  
+  if (loading) {
+    return (
+      <div className="container mx-auto p-4 flex justify-center items-center min-h-[60vh]">
+        <div className="text-center">
+          <Loader2 className="animate-spin h-8 w-8 mx-auto mb-4 text-teal-600" />
+          <p className="text-gray-500">Loading listing details...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!listing) {
+    return (
+      <div className="container mx-auto p-4 flex justify-center items-center min-h-[60vh]">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2">Listing Not Found</h2>
+          <p className="text-gray-500 mb-6">This listing may have been removed or is no longer available.</p>
+          <Button onClick={() => navigate("/listings")}>
+            Browse Listings
           </Button>
-          
-          {loading ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Loading listing details...</span>
-            </div>
-          ) : listing ? (
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">{listing.title}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                <p className="text-gray-600">
-                  Posted on {formattedDate}
-                </p>
-                <div className="mt-1">
-                  <Badge variant={listing.status === 'active' ? 'default' : 'secondary'}>
-                    {listing.status}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </motion.div>
-        
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
-          </div>
-        ) : listing ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <Card className="overflow-hidden h-full flex flex-col">
-              <div className="h-64 overflow-hidden">
+        </div>
+      </div>
+    );
+  }
+  
+  const isOwner = user && user.id === listing.seller_id;
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  return (
+    <div className="container mx-auto p-4 max-w-6xl">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="mb-6">
+          {listing.is_donation && (
+            <Badge className="mb-2 bg-red-500">
+              <Heart className="w-3 h-3 mr-1" />
+              Donation
+            </Badge>
+          )}
+          <h1 className="text-3xl font-bold">{listing.title}</h1>
+          <p className="text-gray-500 flex items-center mt-2">
+            <Calendar className="w-4 h-4 mr-2" />
+            Listed on {formatDate(listing.created_at)}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2">
+            <Card className="overflow-hidden">
+              <div className="h-[400px] overflow-hidden bg-gray-100 relative">
                 {listing.image_url ? (
                   <img
                     src={listing.image_url}
                     alt={listing.title}
-                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                    className="w-full h-full object-contain"
+                    onError={(e) => {
+                      console.error("Failed to load listing image:", listing.image_url);
+                      const target = e.target as HTMLImageElement;
+                      target.src = DEFAULT_SCRAP_IMAGE;
+                    }}
                   />
                 ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white">
-                    <span className="text-3xl font-bold">{listing.title.charAt(0)}</span>
+                  <div className="flex items-center justify-center h-full bg-gray-100">
+                    <Package className="h-24 w-24 text-gray-300" />
+                    <p className="text-gray-400 ml-2">No image available</p>
                   </div>
                 )}
+                <Badge 
+                  className={`absolute top-4 right-4 px-3 py-1 text-sm ${
+                    listing.status === 'active' ? 'bg-green-500' :
+                    listing.status === 'sold' ? 'bg-blue-500' :
+                    listing.status === 'pending' ? 'bg-yellow-500' :
+                    'bg-gray-500'
+                  }`}
+                >
+                  {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
+                </Badge>
               </div>
               
+              <CardContent className="p-6">
+                <Tabs defaultValue="details">
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="details">Details</TabsTrigger>
+                    <TabsTrigger value="location">Location</TabsTrigger>
+                    {listing.ngo && (
+                      <TabsTrigger value="ngo">NGO Information</TabsTrigger>
+                    )}
+                  </TabsList>
+                  
+                  <TabsContent value="details" className="space-y-4">
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="font-medium text-gray-900">Description</h3>
+                        <p className="mt-1 text-gray-700 whitespace-pre-wrap">{listing.description}</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-gray-50 p-4 rounded-md">
+                          <div className="flex items-center mb-2">
+                            <Package className="h-5 w-5 text-teal-600 mr-2" />
+                            <h3 className="font-medium">Material Details</h3>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Type:</span>
+                              <span>{listing.material_type?.name || 'Unknown'}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Category:</span>
+                              <span>{listing.material_type?.category || 'Uncategorized'}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Quantity:</span>
+                              <span>{listing.quantity} {listing.unit}</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-gray-50 p-4 rounded-md">
+                          <div className="flex items-center mb-2">
+                            <IndianRupee className="h-5 w-5 text-teal-600 mr-2" />
+                            <h3 className="font-medium">Listing Details</h3>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Price:</span>
+                              <span className="font-bold">
+                                {listing.is_donation ? 
+                                  "Free (Donation)" : 
+                                  `₹${listing.listed_price} per ${listing.unit}`
+                                }
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Status:</span>
+                              <span className="capitalize">{listing.status}</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">Seller:</span>
+                              <span>{listing.profiles?.full_name || "Anonymous"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="location">
+                    <div className="space-y-4">
+                      {listing.address && (
+                        <div className="flex items-start gap-2">
+                          <MapPin className="h-5 w-5 text-teal-600 mt-0.5" />
+                          <p className="text-gray-700">{listing.address}</p>
+                        </div>
+                      )}
+                      
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-lg">Pickup Location</CardTitle>
+                          <CardDescription>
+                            {isOwner ? 
+                              "This is where buyers can pick up your scrap materials" :
+                              "This is where you can pick up the scrap materials"
+                            }
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <ScrapPickupMap
+                            initialLocation={pickupLocation}
+                            readOnly={true}
+                            listingId={listing.id}
+                          />
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </TabsContent>
+                  
+                  {listing.ngo && (
+                    <TabsContent value="ngo" className="space-y-4">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Donation Recipient</CardTitle>
+                          <CardDescription>
+                            This item is being donated to the following organization
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                              <Heart className="h-8 w-8 text-red-500" />
+                              <div>
+                                <h3 className="font-medium text-lg">{listing.ngo.name}</h3>
+                              </div>
+                            </div>
+                            <p className="text-gray-700">
+                              Contact the seller for more information about this donation.
+                            </p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </TabsContent>
+                  )}
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+          
+          <div className="space-y-6">
+            <Card>
               <CardHeader>
-                <CardTitle>Material Details</CardTitle>
-                <CardDescription>Information about the listed material</CardDescription>
+                <CardTitle>Request This Listing</CardTitle>
+                <CardDescription>
+                  {listing.is_donation ? 
+                    "Request this donation or contact the seller for more information" :
+                    "Send a request to negotiate or purchase this listing"
+                  }
+                </CardDescription>
               </CardHeader>
-              
-              <CardContent className="space-y-4 flex-grow">
-                <div className="flex gap-2">
-                  <Tag className="h-5 w-5 text-teal-600" />
-                  <p>
-                    <span className="font-semibold">Material:</span>{' '}
-                    <Badge variant="outline" className="bg-teal-50 ml-1">
-                      {listing.material_type?.name || 'Unknown'}
-                    </Badge>
-                  </p>
-                </div>
-                
-                <div className="flex gap-2">
-                  <Package className="h-5 w-5 text-teal-600" />
-                  <p>
-                    <span className="font-semibold">Quantity:</span>{' '}
-                    {listing.quantity} {listing.unit}
-                  </p>
-                </div>
-                
-                <div className="flex gap-2">
-                  <Calendar className="h-5 w-5 text-teal-600" />
-                  <p>
-                    <span className="font-semibold">Listed:</span>{' '}
-                    {formattedDate}
-                  </p>
-                </div>
-                
-                  {listing.profiles && !listing.profiles.error && (
-                  <div className="flex gap-2">
-                    <User className="h-5 w-5 text-teal-600" />
-                    <p>
-                      <span className="font-semibold">Seller:</span>{' '}
-                      {listing.profiles.full_name || 'Anonymous User'}
+              <CardContent>
+                {isOwner ? (
+                  <div className="bg-blue-50 p-4 rounded-md flex gap-3">
+                    <AlertCircle className="h-5 w-5 text-blue-500" />
+                    <p className="text-blue-700 text-sm">
+                      This is your listing. You can edit it or view requests from buyers.
                     </p>
                   </div>
-                )}
-                
-                {listing.address && (
-                  <div className="flex gap-2">
-                    <MapPin className="h-5 w-5 text-teal-600" />
-                    <p>
-                      <span className="font-semibold">Address:</span>{' '}
-                      {listing.address}
+                ) : listing.status !== 'active' ? (
+                  <div className="bg-yellow-50 p-4 rounded-md flex gap-3">
+                    <AlertCircle className="h-5 w-5 text-yellow-500" />
+                    <p className="text-yellow-700 text-sm">
+                      This listing is currently {listing.status.toLowerCase()} and not available for requests.
                     </p>
                   </div>
-                )}
-                
-                {listing.description && (
-                  <div className="pt-4 border-t">
-                    <h4 className="font-semibold mb-2">Description</h4>
-                    <p className="text-gray-600">{listing.description}</p>
+                ) : requestSent ? (
+                  <div className="bg-green-50 p-4 rounded-md flex gap-3">
+                    <AlertCircle className="h-5 w-5 text-green-500" />
+                    <p className="text-green-700 text-sm">
+                      You have already sent a request for this listing. The seller will contact you soon.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 p-4 rounded-md">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span className="text-gray-500">Available:</span>
+                        <span>{listing.quantity} {listing.unit}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Listed Price:</span>
+                        <span className="font-bold">
+                          {listing.is_donation ? "Free" : `₹${listing.listed_price} per ${listing.unit}`}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="pt-4 space-y-3">
+                      {!user ? (
+                        <Button 
+                          className="w-full" 
+                          onClick={() => navigate("/auth", { state: { returnTo: `/pickup/${id}` } })}
+                        >
+                          Sign In to Request
+                        </Button>
+                      ) : listing.is_donation ? (
+                        <Button className="w-full">
+                          <Heart className="w-4 h-4 mr-2" />
+                          Request Donation
+                        </Button>
+                      ) : (
+                        <>
+                          <RequestListingDialog
+                            listingId={listing.id}
+                            listingTitle={listing.title}
+                            originalPrice={listing.listed_price}
+                            quantity={listing.quantity}
+                            unit={listing.unit}
+                            onRequestSent={handleRequestSent}
+                          />
+                          
+                          <NegotiationDialog
+                            listingId={listing.id}
+                            listingTitle={listing.title}
+                            askingPrice={listing.listed_price}
+                            trigger={
+                              <Button 
+                                className="w-full flex items-center gap-2 mt-3" 
+                                variant="outline"
+                              >
+                                <HandCoins className="h-4 w-4" />
+                                Make an Offer
+                              </Button>
+                            }
+                          />
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>
-              
-              <CardFooter className="border-t pt-4 mt-auto">
-                <div className="w-full flex justify-between items-center">
-                  <div className="text-2xl font-bold text-teal-600">
-                    ${listing.listed_price}
-                  </div>
-                  
-                  <div className="flex space-x-2">
-                    <Dialog open={isLocationDialogOpen} onOpenChange={setIsLocationDialogOpen}>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="outline"
-                          onClick={() => setIsLocationDialogOpen(true)}
-                          className="flex items-center transition-all duration-300"
-                        >
-                          <Eye className="mr-2 h-4 w-4" />
-                          View Location
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle>Pickup Location for {listing.title}</DialogTitle>
-                          <DialogDescription>
-                              {pickupLocation 
-                                ? "View the exact location for this material pickup" 
-                                : "No pickup location has been set for this listing"}
-                          </DialogDescription>
-                        </DialogHeader>
-                        
-                        {pickupLocation ? (
-                          <div className="h-[400px] mt-4">
-                              <div className="mb-4 flex justify-between items-center">
-                                <h3 className="font-medium">Pickup Location</h3>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  onClick={() => setShowAllListings(!showAllListings)}
-                                >
-                                  {showAllListings ? "Show Only This Listing" : "Show All Listings"}
-                                </Button>
-                              </div>
-                              
-                            <ScrapPickupMap 
-                              initialLocation={pickupLocation} 
-                              readOnly={true} 
-                              listingId={listing.id}
-                                showAllListings={showAllListings}
-                              />
-                              
-                              {showAllListings && (
-                                <div className="mt-4 p-3 border rounded-md bg-gray-50">
-                                  <h4 className="font-medium text-sm mb-2">Material Categories</h4>
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
-                                      <span>Metal</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-                                      <span>Plastic</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
-                                      <span>Paper</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-purple-500 mr-2"></div>
-                                      <span>Glass</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
-                                      <span>Electronics</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                      <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-                                      <span>Other</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center p-6 border rounded-lg">
-                            <MapPin className="h-10 w-10 text-gray-400 mb-2" />
-                              <p className="text-gray-600 mb-4">No location information available for this listing</p>
-                              
-                              {user?.id === listing.seller_id && !isSettingLocation && (
-                                <Button 
-                                  onClick={() => setIsSettingLocation(true)}
-                                  variant="outline"
-                                  className="mt-2"
-                                >
-                                  Set Pickup Location
-                                </Button>
-                              )}
-                              
-                              {!isSettingLocation && (
-                                <>
-                                  <Button
-                                    onClick={() => {
-                                      setShowAllListings(true);
-                                      setIsSettingLocation(false);
-                                    }}
-                                    variant="outline"
-                                    className="mt-2"
-                                  >
-                                    View Other Listings on Map
-                                  </Button>
-                                  
-                                  {user?.id === listing.seller_id && (
-                                    <div className="flex space-x-2 mt-2">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                          try {
-                                            const testLocation = { lat: 13.0827, lng: 80.2707 }; // Chennai
-                                            console.log("Direct test - Chennai location with GeoJSON:", testLocation);
-                                            
-                                            // Try GeoJSON format
-                                            const { data, error } = await supabase
-                                              .from('scrap_listings')
-                                              .update({ 
-                                                geolocation: {
-                                                  type: 'Point',
-                                                  coordinates: [testLocation.lng, testLocation.lat]
-                                                }
-                                              })
-                                              .eq('id', listing.id)
-                                              .select();
-                                            
-                                            if (error) {
-                                              console.error("GeoJSON test failed:", error);
-                                              toast({
-                                                title: "GeoJSON Failed",
-                                                description: error.message,
-                                                variant: "destructive",
-                                              });
-                                            } else {
-                                              console.log("GeoJSON test succeeded:", data);
-                                              toast({
-                                                title: "GeoJSON Success",
-                                                description: "Location saved with GeoJSON format",
-                                              });
-                                              setTimeout(() => window.location.reload(), 1500);
-                                            }
-                                          } catch (e) {
-                                            console.error("GeoJSON test exception:", e);
-                                          }
-                                        }}
-                                      >
-                                        GeoJSON
-                                      </Button>
-                                      
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                          try {
-                                            const testLocation = { lat: 13.0827, lng: 80.2707 }; // Chennai
-                                            console.log("Direct test - Chennai location with String:", testLocation);
-                                            
-                                            // Try string format
-                                            const pointString = `POINT(${testLocation.lng} ${testLocation.lat})`;
-                                            const { data, error } = await supabase
-                                              .from('scrap_listings')
-                                              .update({ 
-                                                geolocation: pointString
-                                              })
-                                              .eq('id', listing.id)
-                                              .select();
-                                            
-                                            if (error) {
-                                              console.error("String test failed:", error);
-                                              toast({
-                                                title: "String Failed",
-                                                description: error.message,
-                                                variant: "destructive",
-                                              });
-                                            } else {
-                                              console.log("String test succeeded:", data);
-                                              toast({
-                                                title: "String Success",
-                                                description: "Location saved with string format",
-                                              });
-                                              setTimeout(() => window.location.reload(), 1500);
-                                            }
-                                          } catch (e) {
-                                            console.error("String test exception:", e);
-                                          }
-                                        }}
-                                      >
-                                        String
-                                      </Button>
-                                      
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={async () => {
-                                          try {
-                                            const testLocation = { lat: 13.0827, lng: 80.2707 }; // Chennai
-                                            console.log("Direct test - Chennai location using SQL:", testLocation);
-                                            
-                                            // Try direct SQL update
-                                            const { data, error } = await supabase.rpc(
-                                              'update_geolocation',
-                                              { 
-                                                listing_id: listing.id,
-                                                lat: testLocation.lat,
-                                                lng: testLocation.lng
-                                              }
-                                            );
-                                            
-                                            if (error) {
-                                              console.error("Direct SQL test failed:", error);
-                                              toast({
-                                                title: "SQL Test Failed",
-                                                description: error.message,
-                                                variant: "destructive",
-                                              });
-                                            } else {
-                                              console.log("Direct SQL test succeeded:", data);
-                                              toast({
-                                                title: "SQL Success",
-                                                description: "Location saved with SQL function",
-                                              });
-                                              setTimeout(() => window.location.reload(), 1500);
-                                            }
-                                          } catch (e) {
-                                            console.error("SQL test exception:", e);
-                                          }
-                                        }}
-                                      >
-                                        SQL
-                                      </Button>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                              
-                              {isSettingLocation && (
-                                <div className="w-full mt-4">
-                                  <h4 className="font-medium mb-2">Set a Pickup Location</h4>
-                                  <p className="text-sm text-gray-500 mb-4">Click on the map or search for an address to set the pickup location</p>
-                                  
-                                  <ScrapPickupMap
-                                    onLocationSelected={(location) => setManualLocation(location)}
-                                    readOnly={false}
-                                  />
-                                  
-                                  <div className="flex justify-end mt-4 space-x-2">
-                                    <Button 
-                                      variant="outline" 
-                                      onClick={() => setIsSettingLocation(false)}
-                                    >
-                                      Cancel
-                                    </Button>
-                                    <Button 
-                                      onClick={() => handleSaveLocation(manualLocation!)}
-                                      disabled={!manualLocation || loading}
-                                    >
-                                      {loading ? (
-                                        <>
-                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                          Saving...
-                                        </>
-                                      ) : (
-                                        "Save Location"
-                                      )}
-                                    </Button>
-                                  </div>
-                                </div>
-                              )}
-                          </div>
-                        )}
-                      </DialogContent>
-                    </Dialog>
-                    
-                    <Button
-                      onClick={handleRequestPickup}
-                      disabled={requestingPickup || user?.id === listing.seller_id || listing.status !== 'active'}
-                      className="bg-teal-600 hover:bg-teal-700 transition-all duration-300 transform hover:-translate-y-1"
-                    >
-                      {requestingPickup ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <Truck className="mr-2 h-4 w-4" />
-                          Request Pickup
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              </CardFooter>
             </Card>
-          </motion.div>
-          
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-          >
-            <AnimatePresence mode="wait">
-              {showMap ? (
-                <motion.div
-                  key="map"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.5 }}
-                  className="h-full"
-                >
-                  <Card className="h-full flex flex-col">
-                    <CardHeader>
-                      <CardTitle>Pickup Location</CardTitle>
-                      <CardDescription>
-                        View the location for material pickup
-                      </CardDescription>
-                    </CardHeader>
-                    
-                    <CardContent className="flex-grow">
-                      {pickupLocation ? (
-                          <div className="h-full min-h-[400px]">
-                            <div className="mb-4 flex justify-between items-center">
-                              <h3 className="font-medium">Pickup Location</h3>
-                              <Button 
-                                size="sm" 
-                                variant="outline" 
-                                onClick={() => setShowAllListings(!showAllListings)}
-                              >
-                                {showAllListings ? "Show Only This Listing" : "Show All Listings"}
-                              </Button>
-                            </div>
-                            
-                            <ScrapPickupMap 
-                              initialLocation={pickupLocation} 
-                              readOnly={true} 
-                              listingId={listing.id}
-                              showAllListings={showAllListings}
-                            />
-                            
-                            {showAllListings && (
-                              <div className="mt-4 p-3 border rounded-md bg-gray-50">
-                                <h4 className="font-medium text-sm mb-2">Material Categories</h4>
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
-                                    <span>Metal</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-                                    <span>Plastic</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
-                                    <span>Paper</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-purple-500 mr-2"></div>
-                                    <span>Glass</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
-                                    <span>Electronics</span>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
-                                    <span>Other</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                      ) : (
-                        <div className="h-64 flex items-center justify-center bg-gray-100 rounded-lg">
-                          <div className="text-center p-6">
-                            <MapPin className="h-10 w-10 text-gray-400 mx-auto mb-2" />
-                              <p className="text-gray-500 mb-4">No location information available</p>
-                              
-                              {user?.id === listing.seller_id ? (
-                                <Button 
-                                  onClick={() => setIsLocationDialogOpen(true)}
-                                  variant="outline"
-                                  size="sm"
-                                >
-                                  Set Pickup Location
-                                </Button>
-                              ) : (
-                                <div className="text-sm text-gray-500">
-                                  <p>The seller has not provided a pickup location yet.</p>
-                                  <Button
-                                    onClick={() => setShowAllListings(true)}
-                                    variant="link"
-                                    size="sm"
-                                    className="mt-2"
-                                  >
-                                    View Other Listings Instead
-                                  </Button>
-                                </div>
-                              )}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="details"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.5 }}
-                >
-                  <Card className="h-full flex flex-col">
-                    <CardHeader>
-                      <CardTitle>Additional Information</CardTitle>
-                      <CardDescription>
-                        More details about this listing
-                      </CardDescription>
-                    </CardHeader>
-                    
-                    <CardContent className="flex-grow">
-                      <div className="space-y-6">
-                        <div className="p-4 bg-teal-50 rounded-lg border border-teal-100">
-                          <div className="flex items-start">
-                            <Info className="h-5 w-5 text-teal-600 mt-0.5 mr-2" />
-                            <div>
-                              <h3 className="font-medium text-teal-900">About this Material</h3>
-                              <p className="text-teal-700 text-sm mt-1">
-                                This {listing.material_type?.name.toLowerCase() || 'material'} can be recycled or repurposed. 
-                                Request pickup to arrange collection with the seller.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <h3 className="font-semibold mb-2 text-gray-800">Material Category</h3>
-                          <p className="text-gray-600">{listing.material_type?.category || 'Uncategorized'}</p>
-                        </div>
-                        
-                        <div>
-                          <h3 className="font-semibold mb-2 text-gray-800">Listing Status</h3>
-                          <Badge className={listing.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
-                            {listing.status === 'active' ? 'Available for pickup' : 'Pending pickup'}
-                          </Badge>
-                        </div>
-                        
-                        <div>
-                          <h3 className="font-semibold mb-2 text-gray-800">Pickup Instructions</h3>
-                          <p className="text-gray-600">
-                            {listing.description || 'Contact the seller for specific pickup instructions after requesting pickup.'}
-                          </p>
-                        </div>
-                        
-                        {listing.address && (
-                          <div className="flex gap-2">
-                            <MapPin className="h-5 w-5 text-teal-600 mt-1" />
-                            <div>
-                              <h3 className="font-semibold text-gray-800">Pickup Location</h3>
-                              <p className="text-gray-600">{listing.address}</p>
-                              <Button 
-                                variant="link" 
-                                onClick={() => setShowMap(true)}
-                                className="p-0 h-auto text-teal-600 hover:text-teal-700"
-                              >
-                                View on map
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        </div>
-        ) : (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-4">Listing Not Found</h2>
-            <p className="text-gray-600 mb-6">The listing you're looking for doesn't exist or has been removed.</p>
-            <Button onClick={() => navigate('/listings')} className="bg-teal-600 hover:bg-teal-700">
-              Back to Listings
-            </Button>
+            
+            {isOwner && (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Manage Listing</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button 
+                      className="w-full"
+                      onClick={() => navigate(`/my-listings`)}
+                    >
+                      View All Your Listings
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full"
+                      onClick={() => navigate(`/edit-listing/${listing.id}`)}
+                    >
+                      Edit This Listing
+                    </Button>
+                  </CardContent>
+                </Card>
+                
+                <Card className="mt-4">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <HandCoins className="h-5 w-5" />
+                      Negotiations
+                    </CardTitle>
+                    <CardDescription>
+                      View and respond to offers from potential buyers
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <NegotiationsManager 
+                      listingId={String(listing.id)} 
+                    />
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </motion.div>
     </div>
   );
 };

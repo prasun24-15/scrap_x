@@ -91,6 +91,13 @@ const defaultCenter = {
 // Define libraries with correct type
 const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = ["places"];
 
+// Add window interface augmentation at the top of the file
+declare global {
+  interface Window {
+    googleMapsApiKeyLoaded?: boolean;
+  }
+}
+
 const ScrapPickupMap = ({ 
   onLocationSelected, 
   initialLocation, 
@@ -149,14 +156,23 @@ const ScrapPickupMap = ({
       
       if (error) {
         console.error("Error fetching listings:", error);
-        throw error;
+        toast({
+          title: "Error Loading Listings",
+          description: "Failed to load listing locations. " + error.message,
+          variant: "destructive",
+        });
+        return;
       }
       
       if (data && data.length > 0) {
         console.log("Raw listings data:", data);
         
         const markers = data
-          .filter(item => item.latitude && item.longitude)
+          .filter(item => {
+            // Ensure we have valid coordinates before processing
+            return item && typeof item.latitude === 'number' && typeof item.longitude === 'number' && 
+              !isNaN(item.latitude) && !isNaN(item.longitude);
+          })
           .map(item => {
             try {
               const location = {
@@ -183,34 +199,65 @@ const ScrapPickupMap = ({
           .filter(Boolean) as ListingMarker[];
         
         console.log("Final processed markers:", markers);
+        
+        if (markers.length === 0) {
+          toast({
+            title: "No Visible Listings",
+            description: "There are listings in the database, but none have valid location data.",
+          });
+        }
+        
         setAllListings(markers);
         
         // If we have markers and a map, adjust bounds to show all markers
         if (markers.length > 0 && map) {
-          const bounds = new google.maps.LatLngBounds();
-          markers.forEach(marker => {
-            bounds.extend(marker.location);
-          });
-          
-          map.fitBounds(bounds);
-          
-          // Don't zoom in too far on single markers
-          const zoomListener = google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
-            if (map.getZoom() && map.getZoom() > 15) {
-              map.setZoom(15);
+          try {
+            const bounds = new google.maps.LatLngBounds();
+            markers.forEach(marker => {
+              if (marker.location && typeof marker.location.lat === 'number' && typeof marker.location.lng === 'number') {
+                bounds.extend(marker.location);
+              }
+            });
+            
+            map.fitBounds(bounds);
+            
+            // Don't zoom in too far on single markers
+            const zoomListener = google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
+              if (map.getZoom() && map.getZoom() > 15) {
+                map.setZoom(15);
+              }
+            });
+          } catch (e) {
+            console.error("Error setting map bounds:", e);
+            // If bounds error occurs, just center on the first marker
+            if (markers[0] && markers[0].location) {
+              map.setCenter(markers[0].location);
+              map.setZoom(12);
             }
-          });
+          }
+        } else if (map) {
+          // If no markers but we have a map, set default center
+          map.setCenter(defaultCenter);
+          map.setZoom(5); // Zoom out to show more area
         }
       } else {
         console.log("No listing data returned or empty array");
+        setAllListings([]);
+        
+        if (map) {
+          // Set default center if no listings
+          map.setCenter(defaultCenter);
+          map.setZoom(5); // Zoom out to show more area
+        }
       }
     } catch (error) {
       console.error("Error in fetchAllListings:", error);
       toast({
         title: "Error",
-        description: "Failed to load listing locations",
+        description: "Failed to load listing locations. Please try again later.",
         variant: "destructive",
       });
+      setAllListings([]);
     } finally {
       setLoading(false);
     }
@@ -521,7 +568,25 @@ const ScrapPickupMap = ({
       <LoadScript
         googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
         libraries={libraries}
-        onLoad={handleScriptLoad}
+        loadingElement={<div className="w-full h-[500px] flex items-center justify-center bg-gray-100 rounded-lg">
+          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+        </div>}
+        onLoad={() => {
+          window.googleMapsApiKeyLoaded = true;
+          handleScriptLoad();
+          // Force refresh the data after API loads
+          if (showAllListings) {
+            setTimeout(fetchAllListings, 500);
+          }
+        }}
+        onError={(error) => {
+          console.error("Error loading Google Maps API:", error);
+          toast({
+            title: "Map Loading Error",
+            description: "Failed to load Google Maps. Please try again later.",
+            variant: "destructive",
+          });
+        }}
       >
         <div className="bg-white p-6 rounded-lg shadow-md">
           <h2 className="text-2xl font-semibold mb-4">
@@ -580,7 +645,7 @@ const ScrapPickupMap = ({
               <GoogleMap
                 mapContainerStyle={mapContainerStyle}
                 center={currentLocation || defaultCenter}
-                zoom={14}
+                zoom={currentLocation ? 14 : 5}
                 onClick={handleMapClick}
                 onLoad={handleMapLoad}
                 options={{
@@ -596,9 +661,12 @@ const ScrapPickupMap = ({
                     position={currentLocation}
                     icon={{
                       url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png',
-                      scaledSize: new google.maps.Size(40, 40)
+                      scaledSize: new google.maps.Size(50, 50),
+                      origin: new google.maps.Point(0, 0),
+                      anchor: new google.maps.Point(25, 50)
                     }}
                     draggable={!readOnly}
+                    animation={google.maps.Animation.DROP}
                     onDragEnd={(e) => {
                       if (e.latLng) {
                         const newPosition = {
@@ -609,23 +677,43 @@ const ScrapPickupMap = ({
                         if (onLocationSelected) {
                           onLocationSelected(newPosition);
                         }
+                        
+                        // Get address from coordinates
+                        if (window.google && window.google.maps) {
+                          const geocoder = new google.maps.Geocoder();
+                          geocoder.geocode({ location: newPosition }, (results, status) => {
+                            if (status === "OK" && results && results[0]) {
+                              setAddress(results[0].formatted_address);
+                            }
+                          });
+                        }
                       }
                     }}
                   />
                 )}
 
                 {/* Show all listings markers */}
-                {showAllListings && allListings.map((marker) => {
-                  console.log("Rendering marker:", marker);
+                {showAllListings && allListings.length > 0 && allListings.map((marker) => {
+                  if (!marker || !marker.location || typeof marker.location.lat !== 'number' || typeof marker.location.lng !== 'number') {
+                    return null;
+                  }
+                  
+                  const isSelected = selectedMarker === marker.id;
+                  const color = getMarkerColor(marker.material_category);
+                  
                   return (
                     <Marker
                       key={marker.id}
                       position={marker.location}
                       onClick={() => handleMarkerClick(marker.id)}
                       icon={{
-                        url: `https://maps.google.com/mapfiles/ms/icons/${getMarkerColor(marker.material_category)}-dot.png`,
-                        scaledSize: new google.maps.Size(30, 30)
+                        url: `https://maps.google.com/mapfiles/ms/icons/${color}-dot.png`,
+                        scaledSize: new google.maps.Size(isSelected ? 42 : 30, isSelected ? 42 : 30),
+                        origin: new google.maps.Point(0, 0),
+                        anchor: new google.maps.Point(15, 30)
                       }}
+                      animation={isSelected ? google.maps.Animation.BOUNCE : undefined}
+                      zIndex={isSelected ? 1000 : 1}
                     />
                   );
                 })}
@@ -635,24 +723,58 @@ const ScrapPickupMap = ({
                   <InfoWindow
                     position={allListings.find(m => m.id === selectedMarker)!.location}
                     onCloseClick={handleInfoWindowClose}
+                    options={{
+                      pixelOffset: new google.maps.Size(0, -5),
+                      maxWidth: 320,
+                      disableAutoPan: false
+                    }}
                   >
-                    <div className="p-2 max-w-xs">
-                      <h3 className="font-semibold text-lg mb-1">
-                        {allListings.find(m => m.id === selectedMarker)?.title}
-                      </h3>
-                      <p className="text-sm mb-2">
-                        {allListings.find(m => m.id === selectedMarker)?.quantity} {allListings.find(m => m.id === selectedMarker)?.unit}
-                      </p>
-                      <Button
-                        size="sm"
-                        className="w-full bg-teal-600 hover:bg-teal-700"
-                        asChild
-                      >
-                        <Link to={`/pickup/${selectedMarker}`}>
-                          View Details
-                        </Link>
-                      </Button>
-                    </div>
+                    <motion.div 
+                      initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 300,
+                        damping: 20
+                      }}
+                      className="p-4 rounded-lg shadow-xl bg-white border-2 border-teal-500 max-w-[300px]"
+                    >
+                      <div className="space-y-3">
+                        <div className="relative">
+                          <h3 className="font-bold text-lg text-gray-900 pr-6 border-b-2 border-teal-100 pb-2">
+                            {allListings.find(m => m.id === selectedMarker)?.title}
+                          </h3>
+                          <button 
+                            onClick={handleInfoWindowClose}
+                            className="absolute top-0 right-0 rounded-full w-6 h-6 flex items-center justify-center hover:bg-gray-100"
+                            aria-label="Close"
+                          >
+                            ×
+                          </button>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="text-gray-600 font-medium">Quantity:</div>
+                          <div className="font-semibold">{allListings.find(m => m.id === selectedMarker)?.quantity} {allListings.find(m => m.id === selectedMarker)?.unit}</div>
+                          
+                          <div className="text-gray-600 font-medium">Price:</div>
+                          <div className="font-semibold">₹{allListings.find(m => m.id === selectedMarker)?.price?.toFixed(2)}</div>
+                          
+                          <div className="text-gray-600 font-medium">Material:</div>
+                          <div className="font-semibold capitalize">{allListings.find(m => m.id === selectedMarker)?.material_category}</div>
+                        </div>
+                        
+                        <Button
+                          size="sm"
+                          className="w-full mt-1 bg-teal-600 hover:bg-teal-700 transition-colors"
+                          asChild
+                        >
+                          <Link to={`/pickup/${selectedMarker}`}>
+                            View Details
+                          </Link>
+                        </Button>
+                      </div>
+                    </motion.div>
                   </InfoWindow>
                 )}
               </GoogleMap>
