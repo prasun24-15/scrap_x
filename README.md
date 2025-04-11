@@ -1,6 +1,6 @@
 # EcoScrap - Scrap Material Marketplace
 
-A platform connecting scrap sellers with buyers to promote recycling and sustainable waste management.
+A platform connecting scrap sellers with buyers to promote recycling and sustainable waste management. Built for the Spectrum Hackathon.
 
 ## Features
 
@@ -10,6 +10,16 @@ A platform connecting scrap sellers with buyers to promote recycling and sustain
 - 📸 Upload and manage scrap listings with images
 - 📍 Geolocation tracking for pickup locations
 - 💰 Price tracking and material categorization
+- 🔍 Advanced search and filtering options
+
+## Tech Stack
+
+- React + TypeScript
+- Vite
+- Tailwind CSS
+- Supabase for authentication and database
+- Google Maps API for location services
+- PostGIS for geospatial data handling
 
 ## Setup Instructions for Team Members
 
@@ -69,14 +79,33 @@ The application should now be running at http://localhost:8081 (or another port 
 
 ## Database Schema
 
-- `scrap_listings`: Stores all scrap listings with geolocation data
-- `material_types`: Categories of recyclable materials
-- `profiles`: User profile information
+### Tables
 
-## API Functions
+- **scrap_listings**
+  - `id`: UUID (Primary Key)
+  - `seller_id`: UUID (Foreign Key to auth.users)
+  - `material_type_id`: UUID (Foreign Key to material_types)
+  - `title`: text
+  - `description`: text (nullable)
+  - `quantity`: numeric(10,2)
+  - `unit`: text (default 'kg')
+  - `listed_price`: numeric(10,2)
+  - `image_url`: text (nullable)
+  - `geolocation`: geography (nullable)
+  - `address`: text (nullable)
+  - `status`: text (default 'active')
+  - `created_at`, `updated_at`: timestamps
 
-- `create_geography_point`: Converts longitude/latitude to PostGIS format
-- `get_listings_with_coordinates`: Retrieves listings with coordinates
+- **material_types**
+  - `id`: UUID (Primary Key)
+  - `name`: text
+  - `category`: text
+  - `description`: text (nullable)
+
+### API Functions
+
+- `create_geography_point(longitude float8, latitude float8)`: Converts coordinates to PostGIS format
+- `get_listings_with_coordinates()`: Retrieves listings with formatted coordinates
 
 ## Contributing
 
@@ -86,7 +115,7 @@ The application should now be running at http://localhost:8081 (or another port 
 
 ## Hackathon Team
 
-- [Your Name]
+- Prasun S.
 - [Team Member 2]
 - [Team Member 3]
 - [Team Member 4]
