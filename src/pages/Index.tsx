@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Database } from "@/integrations/supabase/types";
@@ -30,6 +29,8 @@ const fetchScrapListings = async () => {
   if (error) throw error;
   return data;
 };
+
+// ChatBot component removed since we added the script to the HTML file
 
 const Index = () => {
   const [materialTypes, setMaterialTypes] = useState<MaterialType[]>([]);

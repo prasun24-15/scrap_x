@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
-import { Loader2, MapPin, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 
 type Listing = {
@@ -146,34 +146,34 @@ const FixMapLocations = () => {
         </div>
       </CardContent>
       <CardFooter className="flex justify-between">
-          <Button 
-        variant="outline" 
-        onClick={loadListingsWithInvalidCoords}
-        disabled={loadingListings || fixingListings}
-          >
-        {loadingListings ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading...
-          </>
-        ) : (
-          "Refresh List"
-        )}
-          </Button>
-          
-          <Button 
-        onClick={fixListingsCoordinates}
-        disabled={loadingListings || fixingListings || listings.filter(l => !l.has_valid_coords).length === 0}
-      >
-        {fixingListings ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Fixing...
-          </>
-        ) : (
-          "Fix Locations"
-        )}
-      </Button>
+        <Button 
+          variant="outline" 
+          onClick={loadListingsWithInvalidCoords}
+          disabled={loadingListings || fixingListings}
+        >
+          {loadingListings ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading...
+            </>
+          ) : (
+            "Refresh List"
+          )}
+        </Button>
+        
+        <Button 
+          onClick={fixListingsCoordinates}
+          disabled={loadingListings || fixingListings || listings.filter(l => !l.has_valid_coords).length === 0}
+        >
+          {fixingListings ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Fixing...
+            </>
+          ) : (
+            "Fix Locations"
+          )}
+        </Button>
       </CardFooter>
     </Card>
   );

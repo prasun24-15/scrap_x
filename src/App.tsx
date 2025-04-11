@@ -13,7 +13,7 @@ import MyListings from "./pages/MyListings";
 import DonateListing from "./pages/DonateListing";
 import MyNegotiations from "./pages/MyNegotiations";
 import NotFound from "./pages/NotFound";
-import Layout from "./components/Layout";
+import Layout from "./components/layout/Layout";
 import { AuthProvider } from "./contexts/AuthContext";
 import { Suspense } from "react";
 import EditListing from "@/pages/EditListing";

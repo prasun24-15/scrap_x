@@ -2,9 +2,8 @@ import { motion } from "framer-motion";
 import { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { ArrowRight, Package } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { DEFAULT_SCRAP_IMAGE } from "@/components/listing/ImageUploader";
 
 type ScrapListing = Database['public']['Tables']['scrap_listings']['Row'] & {
   material_type?: Database['public']['Tables']['material_types']['Row'] | null;
@@ -17,114 +16,102 @@ interface RecentListingsProps {
 
 const RecentListings = ({ listings, loading }: RecentListingsProps) => {
   const { user } = useAuth();
-  
-  if (loading) {
-    return (
-      <div className="py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
-          <div className="text-center">
-            <div className="animate-pulse w-48 h-6 bg-gray-300 rounded mb-4 mx-auto"></div>
-            <div className="animate-pulse w-64 h-4 bg-gray-200 rounded mx-auto"></div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-10">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-96 bg-white shadow rounded-lg animate-pulse overflow-hidden">
-                <div className="h-48 bg-gray-300 w-full"></div>
-                <div className="p-4">
-                  <div className="h-6 bg-gray-300 rounded mb-4 w-3/4"></div>
-                  <div className="h-4 bg-gray-200 rounded mb-2 w-full"></div>
-                  <div className="h-4 bg-gray-200 rounded mb-2 w-5/6"></div>
-                  <div className="h-4 bg-gray-200 rounded mb-4 w-4/6"></div>
-                  <div className="h-10 bg-gray-300 rounded w-full mt-6"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
-  // Filter to show only the most recent 3 listings
-  const recentListings = listings.slice(0, 3);
-  
+
   return (
-    <div className="py-16 bg-gray-50">
+    <section className="py-16 bg-gray-50">
       <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl md:text-3xl font-bold">Recent Listings</h2>
-            <p className="text-gray-600 mt-2">Check out the latest recyclable materials</p>
-          </div>
-          <Link to="/listings">
-            <Button variant="outline" className="hidden md:flex items-center gap-2">
-              View All <ArrowRight className="h-4 w-4" />
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between mb-12">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <h2 className="text-5xl md:text-7xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-br from-emerald-600 via-teal-500 to-emerald-400 mb-4 drop-shadow-sm font-display leading-tight">
+              Recent Listings
+            </h2>
+            <div className="mt-4 h-2 w-32 bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400 rounded-full opacity-90"></div>
+            <p className="mt-8 text-2xl text-gray-700 max-w-2xl leading-relaxed font-light">
+              Browse the latest materials available on our marketplace.
+            </p>
+          </motion.div>
+          
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="mt-6 md:mt-0"
+          >
+            <Button asChild variant="outline" className="group bg-white/80 backdrop-blur-sm border-2 border-emerald-800/20 hover:bg-emerald-50">
+              <Link to="/listings" className="flex items-center text-lg font-medium">
+                View All Listings 
+                <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
+              </Link>
             </Button>
-          </Link>
+          </motion.div>
         </div>
         
-        {recentListings.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No listings available yet.</p>
-            {user && (
-              <Button className="mt-4" asChild>
-                <Link to="/create-listing">Create a Listing</Link>
-              </Button>
-            )}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-gray-200 rounded-lg h-72 animate-pulse"></div>
+            ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {recentListings.map((listing) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {listings.slice(0, 6).map((listing, index) => (
               <motion.div
                 key={listing.id}
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                className="bg-white rounded-lg shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden hover:shadow-[0_8px_30px_rgb(0,0,0,0.2)] transition-all duration-300"
               >
-                <div className="h-48 relative overflow-hidden">
-                  {listing.image_url ? (
-                    <img 
-                      src={listing.image_url} 
-                      alt={listing.title} 
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        console.error("Failed to load listing image:", listing.image_url);
-                        const target = e.target as HTMLImageElement;
-                        target.src = DEFAULT_SCRAP_IMAGE;
-                      }}
-                    />
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center bg-gray-100">
-                      <Package className="h-16 w-16 text-gray-300" />
-                      <p className="text-gray-400 ml-2">No image</p>
-                    </div>
-                  )}
-                  <div className="absolute top-2 right-2 bg-teal-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                    ₹{listing.listed_price}/{listing.unit}
+                {listing.image_url ? (
+                  <img 
+                    src={listing.image_url} 
+                    alt={listing.title} 
+                    className="w-full h-48 object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-48 bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center text-white">
+                    <span className="text-2xl font-bold">{listing.title.charAt(0)}</span>
                   </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="text-xl font-semibold mb-2">{listing.title}</h3>
-                  <p className="text-gray-600 mb-4 line-clamp-2">{listing.description || "No description provided."}</p>
-                  <Link to={`/pickup/${listing.id}`}>
-                    <Button className="w-full">View Details</Button>
-                  </Link>
+                )}
+                
+                <div className="p-6">
+                  <h3 className="text-2xl font-semibold mb-3 text-gray-800">{listing.title}</h3>
+                  <p className="text-lg text-gray-600 mb-6 line-clamp-2">{listing.description || "No description provided"}</p>
+                  
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="text-2xl font-bold text-emerald-600">${listing.listed_price}</span>
+                      <span className="text-lg text-gray-500 ml-2">• {listing.quantity} {listing.unit}</span>
+                    </div>
+                    <Button asChild size="lg" variant="outline" className="bg-white/80 backdrop-blur-sm border-2 border-emerald-800/20 hover:bg-emerald-50">
+                      <Link to={`/pickup/${listing.id}`} className="text-lg font-medium">View Details</Link>
+                    </Button>
+                  </div>
                 </div>
               </motion.div>
             ))}
+            
+            {listings.length === 0 && (
+              <div className="col-span-1 md:col-span-3 py-12 text-center bg-white rounded-lg shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
+                <p className="text-2xl text-gray-500 mb-6">No listings available at the moment.</p>
+                {user && (
+                  <Button asChild size="lg" className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-8 py-6 text-lg font-semibold rounded-full shadow-lg hover:shadow-xl transition-all duration-300">
+                    <Link to="/create-listing">Create First Listing</Link>
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
-        
-        <div className="text-center mt-8">
-          <Link to="/listings" className="md:hidden inline-block">
-            <Button variant="outline" className="flex items-center gap-2">
-              View All Listings <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
       </div>
-    </div>
+    </section>
   );
 };
 
